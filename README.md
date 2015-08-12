@@ -33,6 +33,29 @@ NkCLUSTER scales seamlessly, from a single machine to a 10-20 _control+worker_ n
 NkCLUSTER requires Erlang R17+.
 
 
+# Quick Start
+
+```
+git clone https://github.com/Nekso/nkcluster.git
+make
+```
+
+Then, you can start five different consoles, and start five nodes, one at each: `make dev1`, `make dev2`, `make dev3`, `make dev3` and `make dev5`.
+
+Nodes 1, 2 and 3 are control/worker nodes. Nodes 4 and 5 are worker nodes. The cluster should discover everything automatically, but you must deploy the cluster plan. At any node of 1, 2 or 3:
+
+```erlang
+> nkcluster_nodes:get_nodes().
+[<<"dev1">>,<<"dev2">>,<<"dev3">>,<<"dev4">>,<<"dev5">>]
+
+> nkcluster_nodes:get_node_info(<<"dev4">>).
+{ok, #{id=><<"dev4">>, ...}}
+
+> nkcluster:call(<<"dev3">>, erlang, node, [], 5000). 
+{reply, 'dev3@127.0.0.1'}
+```
+
+
 # Use cases and deployment scenarios
 
 NkCLUSTER is designed to solve an specific type of distributed work problem. It is probably useful for other scenarios, but it is specially well suited for the following case, where any _job class_ is a compound of up to three _layers_:
@@ -97,7 +120,6 @@ The password for this specific node and tls options can be included in the url:
 ```erlang
 {cluster_addr, "nkcluster://10.0.0.1:1234;transport=wss;password=pass1;tls_depth=2"}
 ```
-but currently this works only for single urls.
 
 NkPACKET supports the following DNS records for discovery:
 * [_NAPTR_](https://en.wikipedia.org/wiki/NAPTR_record) records. If you don't supply port or transport, it will try to find a NAPTR record for the domain. For example, with this record:
@@ -129,7 +151,7 @@ Using this node proxy process, you can send requests and start tasks at the work
 
 Based on _riak_core_, NkCLUSTER allows the addition and removal of nodes at any moment.
 
-When a new control node is added, it automatically discovers and joins the riak_core cluster. However, you must do nkdist_admin:cluster_plan/0 and nkdist_admin:cluster_commit/0. While the cluster is reorganized, node proxy processes are relocated to be evenly distributed among the cluster again. When a node is removed, the opposite happens, also automatically.
+When a new control node is added, it automatically discovers and joins the riak_core cluster. While the cluster is reorganized, node proxy processes are relocated to be evenly distributed among the cluster again. When a node is removed, the opposite happens, also automatically.
 
 Worker nodes can also be added and removed at any moment, and the changes are recognized automatically by the control nodes. Worker nodes can operate at the following states:
 
