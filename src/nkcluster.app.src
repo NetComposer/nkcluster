@@ -1,0 +1,19 @@
+{application, nkcluster, [
+    {description, "Nekso Cluster Framework"},
+    {vsn, "0.1.0"},
+    {modules, []},
+    {registered, []},
+    {mod, {nkcluster_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        crypto,
+        sasl,
+        ssl,
+        lager,
+        nklib,
+        nkpacket,
+        os_mon
+    ]},
+    {env, []}
+]}.
