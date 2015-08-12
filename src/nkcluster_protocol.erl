@@ -711,7 +711,8 @@ connect_nodes(#{nodes:=Nodes}) ->
     end;
 
 connect_nodes([Node|Rest]) ->
-    case riak_core:staged_join(Node) of
+    % case riak_core:staged_join(Node) of
+    case riak_core:join(Node) of
         ok -> 
             lager:notice("NkCLUSTER control node joined ~p", [Node]);
         {error, Error} ->
