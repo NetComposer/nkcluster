@@ -36,23 +36,23 @@ docs:
 
 dev1:
 	erl -config util/dev1.config -args_file util/dev_vm.args \
-		-name dev1@127.0.0.1 -s nkcluster_app -s nkreloader
+		-name dev1@127.0.0.1 -s nkcluster_app # -s nkreloader
 
 dev2:
 	erl -config util/dev2.config -args_file util/dev_vm.args \
-	    -name dev2@127.0.0.1 -s nkcluster_app -s nkreloader
+	    -name dev2@127.0.0.1 -s nkcluster_app # -s nkreloader
 
 dev3:
 	erl -config util/dev3.config -args_file util/dev_vm.args \
-	    -name dev3@127.0.0.1 -s nkcluster_app -s nkreloader
+	    -name dev3@127.0.0.1 -s nkcluster_app # -s nkreloader
 
 dev4:
 	erl -config util/dev4.config -args_file util/dev_vm.args \
-	    -name dev4@127.0.0.1 -s nkcluster_app -s nkreloader
+	    -name dev4@127.0.0.1 -s nkcluster_app # -s nkreloader
 
 dev5:
 	erl -config util/dev5.config -args_file util/dev_vm.args \
-	    -name dev5@127.0.0.1 -s nkcluster_app -s nkreloader
+	    -name dev5@127.0.0.1 -s nkcluster_app # -s nkreloader
 
 
 APPS = kernel stdlib sasl erts ssl tools os_mon runtime_tools crypto inets \
