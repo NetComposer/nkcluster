@@ -196,7 +196,6 @@ start_link() ->
 
 
 -record(state, {
-    node_id :: binary(),
     cluster_addrs = [] :: [{[nkpacket:raw_connection()], map()}],
     pref_addrs = [] :: [{[nkpacket:raw_connection()], map()}],
     listen = [] :: [nklib:uri()],
@@ -219,7 +218,6 @@ init([]) ->
         _ -> unknown
     end,    
     State = #state{
-        node_id = nkcluster_app:get(uuid),
         listen = nkcluster_app:get(listen),
         status = ready,
         os_type = OsType,
@@ -255,6 +253,9 @@ handle_call({set_status, New}, From, #state{status=Old}=State) ->
             {reply, {error, not_allowed}, State}
     end;
 
+handle_call(get_state, _From, State) ->
+    {reply, State, State};
+
 handle_call(Msg, _From, State) ->
     lager:error("Module ~p received unexpected call: ~p", [?MODULE, Msg]),
     {noreply, State}.
@@ -270,25 +271,21 @@ handle_cast({update_addrs, true, Addrs}, State) ->
 handle_cast({update_addrs, false, Addrs}, State) ->
     {noreply, State#state{cluster_addrs=Addrs}};
 
-handle_cast({send_update, Stats}, #state{connecting=Connecting}=State) ->
-    Addrs = get_addrs(State),
+handle_cast({send_update, Stats}, State) ->
     State1 = State#state{stats=Stats},
+    NoAddrs = no_addrs(State),
     State2 = case send_update(State1) of
         ok ->
             State1;
-        {error, _} when Addrs==[] ->
+        {error, _} when NoAddrs ->
             State1;
         {error, _} ->
             case nkcluster_protocol:send_announce() of
                 ok ->
                     lager:info("NkCLUSTER Agent sent announcement", []),
                     State1;
-                error when Connecting ->
-                    State1;
                 error ->
-                    Self = self(),
-                    spawn_link(fun() -> connect_and_announce(Self, Addrs) end),
-                    State1#state{connecting=true}
+                    connect_and_announce(State)
             end
     end,
     Time = nkcluster_app:get(stats_time),
@@ -327,14 +324,12 @@ handle_info(check_stopped, State) ->
     {noreply, State};
 
 handle_info(ping_timeout, #state{connecting=false}=State) ->
-    State1 = case get_addrs(State) of
-        [] ->
+    State1 = case no_addrs(State) of
+        true ->
             State;
-        Addrs ->
+        false ->
             lager:notice("NkCLUSTER Agent ping timeout!", State),
-            Self = self(),
-            spawn_link(fun() -> connect_and_announce(Self, Addrs) end),
-            State#state{connecting=true}
+            connect_and_announce(State)
     end,
     {noreply, start_ping_timer(State1)};
 
@@ -343,7 +338,7 @@ handle_info(ping_timeout, #state{connecting=true}=State) ->
 
 handle_info(Msg, State) ->
     lager:error("Module ~p received unexpected info: ~p", [?MODULE, Msg]),
-    {noreply, start_ping_timer(State)}.
+    {noreply, State}.
 
 
 %% @private
@@ -406,15 +401,25 @@ send_update(#state{stats=Stats, listen=Listen, status=Status, os_type=OsType}) -
 
 
 %% @private
-connect_and_announce(Self, Addrs) ->
-    case do_connect(worker, Self, Addrs) of
-        {ok, Pid, _NodeId, _Info} ->
-            nkcluster_protocol:send_announce([Pid]);
-        {error, Error} ->
-            lager:info("NkCLUSTER Agent could not connect to any control node: ~p", 
-                       [Error])
+connect_and_announce(#state{connecting=false}=State) ->
+    #state{pref_addrs=Pref, cluster_addrs=Cluster} = State,
+    Addrs = Pref ++ nklib_util:randomize(Cluster),
+    Self = self(),
+    Fun = fun() ->
+        case do_connect(worker, Self, Addrs) of
+            {ok, Pid, _NodeId, _Info} ->
+                nkcluster_protocol:send_announce([Pid]);
+            {error, Error} ->
+                lager:info("NkCLUSTER Agent could not connect to any control node: ~p", 
+                           [Error])
+        end,
+        gen_server:cast(Self, {connecting, false})
     end,
-    gen_server:cast(Self, {connecting, false}).
+    spawn_link(Fun),
+    State#state{connecting=true};
+
+connect_and_announce(State) ->
+    State.
 
 
 %% @private
@@ -469,14 +474,14 @@ connect_opts(Type, Host, Opts) ->
 
 
 %% @private
-get_addrs(#state{pref_addrs=Pref, cluster_addrs=Cluster}) ->
-    Pref ++ nklib_util:randomize(Cluster).
+no_addrs(#state{pref_addrs=Pref, cluster_addrs=Cluster}) ->
+    Pref==[] andalso Cluster==[].
 
 
 %% @private
 start_ping_timer(#state{timer=Timer}=State) ->
     nklib_util:cancel_timer(Timer),
-    Time = 3 * nkcluster_app:get(ping_time),
+    Time = 2 * nkcluster_app:get(ping_time),
     State#state{timer=erlang:send_after(Time, self(), ping_timeout)}.
     
 
