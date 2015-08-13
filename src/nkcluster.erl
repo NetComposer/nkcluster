@@ -23,8 +23,8 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
 -export([get_info/1, set_status/2]).
--export([get_tasks/1, get_tasks/2, get_meta/1, update_meta/2, get_data/2, put_data/3]).
--export([call/5, spawn_call/5]).
+-export([get_tasks/1, get_tasks/2, get_meta/1, update_meta/2, remove_meta/2]).
+-export([get_data/2, put_data/3, del_data/2, call/5, spawn_call/5]).
 -export([send_file/3, send_bigfile/3, load_modules/2, load_module/2]).
 -export([request/3, request/4, task/3, task/4, command/3, command/4]).
 
@@ -117,6 +117,21 @@ update_meta(Node, Tokens) ->
     end.
 
 
+%% @doc Removes some metadata
+-spec remove_meta(conn_spec(), nklib:token()) ->
+    {ok, [nklib:token()]} | {error, term()}.
+
+remove_meta(Node, Tokens) ->
+    case nklib_parse:tokens(Tokens) of
+        error -> 
+            {error, invalid_tokens};
+        Parsed -> 
+            Keys = [Key || {Key, _} <- Parsed],
+            request2(Node, ?CLASS, {remove_meta, Keys})
+    end.
+
+
+
 %% @doc Gets remotely stored data
 -spec get_data(conn_spec(), term()) ->
     {ok, term()} | {error, term()}.
@@ -131,6 +146,14 @@ get_data(Node, Key) ->
 
 put_data(Node, Key, Val) ->
     request2(Node, ?CLASS, {put_data, Key, Val}).
+
+
+%% @doc Removes data remotely
+-spec del_data(conn_spec(), term()) ->
+    ok | {error, term()}.
+
+del_data(Node, Key) ->
+    request2(Node, ?CLASS, {del_data, Key}).
 
 
 %% @doc Calls a remote erlang functiond

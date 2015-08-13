@@ -24,7 +24,7 @@
 -behaviour(application).
 
 -export([start/0, start/2, stop/1]).
--export([get/1, put/2]).
+-export([get/1, put/2, del/1]).
 
 -include("nkcluster.hrl").
 -include_lib("nklib/include/nklib.hrl").
@@ -141,6 +141,10 @@ get(Key, Default) ->
 put(Key, Value) ->
     nklib_config:put(?APP, Key, Value).
 
+
+%% @doc updates a configuration value
+del(Key) ->
+    nklib_config:del(?APP, Key).
 
 
 %% @private
