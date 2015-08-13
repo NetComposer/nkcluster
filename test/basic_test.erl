@@ -104,9 +104,7 @@ connect() ->
 
 proxy() ->
 	?debugMsg("Starting PROXY test"),
-	lager:error("PROXY1"),
 	[] = nkcluster_nodes:get_nodes(),
-	lager:error("PROXY2"),
 
 	% We connect from the control cluster to a known node
 	{ok, NodeId, Info, Proxy1} = nkcluster_nodes:connect("nkcluster://localhost:15001", #{}),
@@ -136,7 +134,7 @@ proxy() ->
 	ok = wait_agent(NodeId, nklib_util:timestamp()+30),
 	?debugMsg("...reconected!"),
 	{ok, #{proxies:=[Proxy2]}} = nkcluster_nodes:get_node_info(NodeId),
-	{ok, [{{nkcluster, NodeId}, Proxy2}]} = nkdist:get_procs(nkcluster_node_proxy),
+	{ok, [{NodeId, Proxy2}]} = nkdist:get_procs(nkcluster_node_proxy),
 	false = is_process_alive(Proxy1),
 	true = Proxy1 /= Proxy2,
 
@@ -147,7 +145,7 @@ proxy() ->
 	ok = wait_agent(NodeId, nklib_util:timestamp()+30),
 	?debugMsg("...reconected!"),
 	{ok, #{proxies:=[Proxy3]}} = nkcluster_nodes:get_node_info(NodeId),
-	{ok, [{{nkcluster, NodeId}, Proxy3}]} = nkdist:get_procs(nkcluster_node_proxy),
+	{ok, [{NodeId, Proxy3}]} = nkdist:get_procs(nkcluster_node_proxy),
 	true = Proxy2 /= Proxy3,
 
 	% Now we kill the connection. The proxy should reconnect inmediatly
