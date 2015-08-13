@@ -465,7 +465,7 @@ connect_opts(Type, Host, Opts) ->
         group => nkcluster,
         valid_schemes => [nkcluster],
         monitor => Host,
-        idle_timeout => maps:get(idle_timeout, Opts, 15000),
+        idle_timeout => 15000,
         ws_proto => nkcluster,
         tcp_packet => 4,
         tls_opts => maps:get(tls_opts, Opts, nkcluster_app:get(tls_opts)),

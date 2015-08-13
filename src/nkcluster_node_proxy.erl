@@ -216,7 +216,7 @@ init({NodeId, #{connect:=Listen0}=Opts}) ->
         node_id = NodeId,
         conn_id = <<"unknown remote">>, 
         listen = Listen, 
-        opts = Opts
+        opts = maps:with([password, tls_opts], Opts)
     },
     ?CLLOG(info, "starting (~p)", [self()], State),
     self() ! connect,
@@ -651,9 +651,10 @@ do_connect([ConnPid|Rest], Host, Opts) when is_pid(ConnPid) ->
     end;
 
 do_connect([ConnUri|Rest], Host, Opts) ->
-    Opts1 = Opts#{idle_timeout => 3*ping_time()},
-    ConnOpts = nkcluster_agent:connect_opts({control, Host}, Host, Opts1),
-    case nkpacket:connect(ConnUri, ConnOpts) of
+    ConnOpts1 = nkcluster_agent:connect_opts({control, Host}, Host, Opts),
+    IdleTimeout = maps:get(idle_timeout, Opts, 3*ping_time()),
+    ConnOpts2 = ConnOpts1#{idle_timeout => IdleTimeout},
+    case nkpacket:connect(ConnUri, ConnOpts2) of
         {ok, ConnPid} ->
             case nkcluster_protocol:wait_auth(ConnPid) of
                 {ok, NodeId, Info} ->
