@@ -679,7 +679,7 @@ not_authorized(Error, #state{auth_froms=AuthFroms}=State) ->
         fun(From) -> gen_server:reply(From, {error, Error}) end,
         AuthFroms),
     case Error of
-        invalid_password -> timer:sleep(5000);
+        invalid_password -> timer:sleep(500);
         _ -> ok
     end,
     raw_send({auth, {error, Error}}, State),
