@@ -151,18 +151,18 @@ received_event(Pid, Class, Event) ->
 
 
 %% @doc Start a new process
--spec start(nkdist:proc_id(), Args::term()) ->
+-spec start(nkcluster:node_id(), Args::term()) ->
     {ok, pid()} | {error, term()}.
 
-start({nkcluster, NodeId}, Opts) ->
+start(NodeId, Opts) ->
     start_link(NodeId, Opts).
 
 
 %% @doc Starts a new clone process
--spec start_and_join(nkdist:proc_id(), pid()) ->
+-spec start_and_join(nkcluster:node_id(), pid()) ->
     {ok, pid()} | {error, term()}.
 
-start_and_join({nkcluster, NodeId}, Pid) ->
+start_and_join(NodeId, Pid) ->
     start_link(NodeId, #{clone=>Pid}).
 
 

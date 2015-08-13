@@ -98,7 +98,7 @@ get_local_node_info(NodeId) ->
     {ok, pid()} | {error, not_found} | {error, term()}.
 
 get_node_pid(NodeId) ->
-    nkdist:find_proc({nkcluster, NodeId}).
+    nkdist:find_proc(nkcluster_node_proxy, NodeId).
 
 
 %% @private Sends a remote request
@@ -369,13 +369,13 @@ do_update(NodeId, Pid, Info, #state{nodes=Nodes, pids=Pids}=State) ->
     {ok, pid()} | {error, term()}.
 
 try_connect(NodeId, Connect, Opts) ->
-    case nkdist:find_proc({nkcluster, NodeId}) of
+    case nkdist:find_proc(nkcluster_node_proxy, NodeId) of
         {ok, Pid} ->
             {ok, Pid};
         {error, _} ->
             lager:info("NkCLUSTER Nodes starting proxy to ~s", [NodeId]),
             Arg = Opts#{connect=>Connect},
-            case nkdist:start_proc({nkcluster, NodeId}, nkcluster_node_proxy, Arg) of
+            case nkdist:start_proc(nkcluster_node_proxy, NodeId, Arg) of
                 {ok, Pid} ->
                     {ok, Pid};
                 {error, {already_started, Pid}} ->
