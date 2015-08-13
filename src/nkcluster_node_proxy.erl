@@ -508,7 +508,7 @@ connect(#state{listen=[]}=State) ->
     {stop, normal, State};
 
 connect(#state{node_id=NodeId, listen=Listen, opts=Opts}=State) ->
-    State1 = update_status(connecting, false, State),
+    State1 = update_status(not_connected, false, State),
     case do_connect(Listen, self(), Opts) of
         {ok, ConnPid, NodeId, Info} ->
             MyListen = nkcluster_app:get(listen),
