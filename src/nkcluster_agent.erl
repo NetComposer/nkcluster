@@ -33,7 +33,7 @@
 
 -export([node_id/0, is_control/0]).
 -export([get_status/0, set_status/1, update_cluster_addr/3, connect/2]).
--export([connect_opts/3, ping_all_nodes/0, pong/0]).
+-export([connect_opts/3, ping_all_nodes/0, connect_nodes/1, pong/0]).
 -export([start_link/0, init/1, terminate/2, code_change/3, handle_call/3,   
             handle_cast/2, handle_info/2]).
 
@@ -135,6 +135,33 @@ ping_all_nodes() ->
                 Conns);
         {error, Error} ->
             {error, Error}
+    end.
+
+
+%% @private
+-spec connect_nodes([node()]) ->
+    ok.
+
+connect_nodes(Nodes) ->
+    case is_control() of
+        true -> 
+            Fun = case nkcluster_app:get(staged_joins) of
+                true -> staged_join;
+                false -> join
+            end,
+            lists:foreach(
+                fun(Node) ->
+                    case apply(riak_core, Fun, [Node]) of
+                        ok -> 
+                            lager:notice("NkCLUSTER control node joined ~p", [Node]);
+                        {error, Error} ->
+                            lager:notice("NkCLUSTER control node could not join ~p: ~p", 
+                                         [Node, Error])
+                    end
+                end,
+                Nodes -- [node()|nodes()]);
+        false ->
+            ok
     end.
 
 

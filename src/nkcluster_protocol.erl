@@ -705,21 +705,7 @@ get_remote_id(#state{nkport=NkPort}) ->
 
 %% @private
 connect_nodes(#{nodes:=Nodes}) ->
-    case nkcluster_agent:is_control() of
-        true -> connect_nodes(Nodes--[node()|nodes()]);
-        false -> ok
-    end;
-
-connect_nodes([Node|Rest]) ->
-    % case riak_core:staged_join(Node) of
-    case riak_core:join(Node) of
-        ok -> 
-            lager:notice("NkCLUSTER control node joined ~p", [Node]);
-        {error, Error} ->
-            lager:notice("NkCLUSTER control node could not join ~p: ~p", [Node, Error])
-    end,
-    connect_nodes(Rest);
-
+    nkcluster_agent:connect_nodes(Nodes);
 connect_nodes(_) ->
     ok.
 

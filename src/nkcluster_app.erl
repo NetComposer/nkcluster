@@ -58,7 +58,8 @@ start(_Type, _Args) ->
         is_control => boolean,
         listen => uris,
         tls_opts => nkpacket_util:tls_spec(),
-        node_id => binary
+        node_id => binary,
+        staged_joins => boolean
     },
     Defaults = [
         {cluster_name, "nkcluster"},
@@ -67,7 +68,8 @@ start(_Type, _Args) ->
         {meta, ""},
         {is_control, true},
         {listen, "nkcluster://all;transport=tls"},
-        {tls_opts, nkpacket_config:tls_opts()}
+        {tls_opts, nkpacket_config:tls_opts()},
+        {staged_joins, false}
     ],
     case nklib_config:load_env(?APP, ?APP, Defaults, ConfigSpec) of
         ok ->
