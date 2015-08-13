@@ -62,7 +62,8 @@ start(_Type, _Args) ->
         proxy_connect_retry => {integer, 1000, none},
         stats_time => {integer, 1000, none},
         node_id => binary,
-        staged_joins => boolean
+        staged_joins => boolean,
+        pbkdf2_iters => {integer, 1, none}
     },
     Defaults = [
         {cluster_name, "nkcluster"},
@@ -75,7 +76,8 @@ start(_Type, _Args) ->
         {ping_time, 5000},
         {proxy_connect_retry, 10000},
         {stats_time, 10000},
-        {staged_joins, false}
+        {staged_joins, false},
+        {pbkdf2_iters, 20000}
     ],
     case nklib_config:load_env(?APP, ?APP, Defaults, ConfigSpec) of
         ok ->

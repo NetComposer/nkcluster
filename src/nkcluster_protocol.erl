@@ -59,7 +59,6 @@
 
 -define(VSNS, [0]).                 % Supported versions
 -define(MAX_TIME_DIFF, 5000).
--define(PBKDF2_ITERS, 1).
 
 %% ===================================================================
 %% Public
@@ -663,8 +662,7 @@ make_auth_hash(Salt, #state{nkport=NkPort}) ->
         true ->
             Pass;
         false ->
-            {ok, HashedPass} = pbkdf2:pbkdf2(sha, Pass, Salt, ?PBKDF2_ITERS),
-            HashedPass
+            pbkdf2(Pass, Salt)
     end.
 
 
@@ -711,6 +709,9 @@ connect_nodes(_) ->
     ok.
 
 
-
-
+%% @private
+pbkdf2(Pass, Salt) ->
+    Iters = nkcluster_app:get(pbkdf2_iters),
+    {ok, Hash} = pbkdf2:pbkdf2(sha, Pass, Salt, Iters),
+    Hash.
 
