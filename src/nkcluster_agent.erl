@@ -34,6 +34,7 @@
 -export([node_id/0, is_control/0]).
 -export([get_status/0, set_status/1, update_cluster_addr/3, connect/2]).
 -export([connect_opts/3, ping_all_nodes/0, connect_nodes/1, pong/0]).
+-export([clear_cluster_addr/0]).
 -export([start_link/0, init/1, terminate/2, code_change/3, handle_call/3,   
             handle_cast/2, handle_info/2]).
 
@@ -45,8 +46,6 @@
         tls_opts => nkpacket:tls_opts()
     }.
 
--define(PING_TIME, 15000).
--define(TIME_STATS, 10000).
 
 %% ===================================================================
 %% Public
@@ -98,6 +97,15 @@ update_cluster_addr(Preferred, ClusterAddr, Opts) ->
     end.
 
 
+%% @private Avoids to reconnect
+-spec clear_cluster_addr() ->
+    ok.
+
+clear_cluster_addr() ->
+    gen_server:cast(?MODULE, {update_addrs, true, []}),
+    gen_server:cast(?MODULE, {update_addrs, false, []}).
+
+
 %% @private Connects to remote node and gets info
 -spec connect(nklib:user_uri(), connect_opts()) ->
     {ok, nkcluster:node_id(), map()}.
@@ -126,7 +134,7 @@ ping_all_nodes() ->
                     case do_connect(control, self(), [Conn]) of
                         {ok, Pid, NodeId, _Info} ->
                             lager:info("NkCLUSTER agent pinged ~s", [NodeId]),
-                            nkpacket_connection:stop(Pid);
+                            nkcluster_protocol:stop(Pid);
                         {error, Error} ->
                             lager:info("NkCLUSTER agent could not ping ~p: ~p", 
                                        [Conn, Error])
@@ -267,7 +275,7 @@ handle_cast({send_update, Stats}, #state{connecting=Connecting}=State) ->
         {error, _} ->
             case nkcluster_protocol:send_announce() of
                 ok ->
-                    lager:info("Agent sent announcement", []),
+                    lager:info("NkCLUSTER Agent sent announcement", []),
                     State1;
                 error when Connecting ->
                     State1;
@@ -277,7 +285,8 @@ handle_cast({send_update, Stats}, #state{connecting=Connecting}=State) ->
                     State1#state{connecting=true}
             end
     end,
-    erlang:send_after(?TIME_STATS, self(), get_stats),
+    Time = nkcluster_app:get(stats_time),
+    erlang:send_after(Time, self(), get_stats),
     {noreply, State2};
 
 handle_cast({connecting, false}, State) ->
@@ -316,7 +325,7 @@ handle_info(ping_timeout, #state{connecting=false}=State) ->
         [] ->
             State;
         Addrs ->
-            lager:notice("Agent ping timeout!", State),
+            lager:notice("NkCLUSTER Agent ping timeout!", State),
             Self = self(),
             spawn_link(fun() -> connect_and_announce(Self, Addrs) end),
             State#state{connecting=true}
@@ -396,7 +405,8 @@ connect_and_announce(Self, Addrs) ->
         {ok, Pid, _NodeId, _Info} ->
             nkcluster_protocol:send_announce([Pid]);
         {error, Error} ->
-            lager:info("Agent could not connect to any control node: ~p", [Error])
+            lager:info("NkCLUSTER Agent could not connect to any control node: ~p", 
+                       [Error])
     end,
     gen_server:cast(Self, {connecting, false}).
 
@@ -407,18 +417,18 @@ do_connect(_Type, _Host, []) ->
 
 do_connect(Type, Host, [{Conns, Opts}|Rest]) ->
     ConnOpts = connect_opts(Type, Host, Opts),
-    lager:info("Agent connecting to ~p", [Conns]),
+    lager:info("NkCLUSTER Agent connecting to ~p", [Conns]),
     case catch nkpacket:connect(Conns, ConnOpts) of
         {ok, Pid} ->
             case nkcluster_protocol:wait_auth(Pid) of
-                {ok, NodeId, Info} -> 
-                    lager:info("Agent connected"),
+                {ok, NodeId, #{remote:=Remote}=Info} -> 
+                    lager:info("NkCLUSTER Agent connected to ~s", [Remote]),
                     {ok, Pid, NodeId, Info};
                 {error, _} -> 
                     do_connect(Type, Host, Rest)
             end;
         {error, Error} ->
-            lager:info("Agent could not connect to ~p: ~p", [Conns, Error]),
+            lager:info("NkCLUSTER Agent could not connect to ~p: ~p", [Conns, Error]),
             do_connect(Type, Host, Rest)
     end.
 
@@ -460,7 +470,8 @@ get_addrs(#state{pref_addrs=Pref, cluster_addrs=Cluster}) ->
 %% @private
 start_ping_timer(#state{timer=Timer}=State) ->
     nklib_util:cancel_timer(Timer),
-    State#state{timer=erlang:send_after(?PING_TIME, self(), ping_timeout)}.
+    Time = 3 * nkcluster_app:get(ping_time),
+    State#state{timer=erlang:send_after(Time, self(), ping_timeout)}.
     
 
 

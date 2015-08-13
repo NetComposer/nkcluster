@@ -258,7 +258,7 @@ conn_init(NkPort) ->
         pos_id = erlang:phash2({nklib_util:l_timestamp(), NodeId}) * 1000
     },
     {ok, #{type:=Type}=User} = nkpacket:get_user(NkPort),
-    lager:debug("Node ~s starting connection ('~p')", [NodeId, Type]),
+    lager:debug("NkCLUSTER node ~s starting connection ('~p')", [NodeId, Type]),
     case User of
         #{type:=listen} ->
             % We don't know yet our type
@@ -289,10 +289,10 @@ conn_parse({binary, WsBinary}, State) ->
 conn_parse(Data, #state{auth=false}=State) ->
     case catch binary_to_term(Data) of
         {auth, Msg} ->
-            % lager:warning("AUTH: ~p", [Msg]),
             process_auth(Msg, State);
         Other ->
-            lager:warning("Node received unexpected object, closing: ~p", [Other]),
+            lager:warning("NkCLUSTER node received unexpected object, closing: ~p", 
+                          [Other]),
             {stop, normal, State}
     end;
 
@@ -318,7 +318,8 @@ conn_parse(Data, #state{auth=true, type=worker}=State) ->
                 Reply -> ret_send({rep, TransId, Reply}, State)
             end;
         Other ->
-            lager:warning("Node worker received unexpected object, closing: ~p", [Other]),
+            lager:warning("NkCLUSTER node worker received unexpected object, "
+                          "closing: ~p", [Other]),
             {stop, normal, State}
     end;
 
@@ -333,7 +334,8 @@ conn_parse(Data, #state{auth=true, type=control}=State) ->
         {ev, Class, Event} ->
             process_event(Class, Event, State);
         Other ->
-            lager:warning("Node control received unexpected object, closing: ~p", [Other]),
+            lager:warning("NkCLUSTER node control received unexpected object, "
+                          "closing: ~p", [Other]),
             {stop, normal, State}
     end.
 
@@ -394,8 +396,8 @@ conn_handle_info(Msg, State) ->
 -spec conn_stop(Reason::term(), #state{}) ->
     ok.
 
-conn_stop(_Reason, _State) ->
-    ok.
+conn_stop(_Reason, #state{type=Type}=State) ->
+    lager:info("NkCLUSTER node ~p disconnected from ~s", [Type, get_remote_id(State)]).
 
 
 %% ===================================================================
@@ -461,7 +463,7 @@ process_auth(#{stage:=1, vsns:=Vsns, id:=RemNodeId, cluster:=Cluster,
             Drift = abs(Now-Time),
             case Drift > ?MAX_TIME_DIFF of
                 true ->
-                    lager:warning("Big time drift: ~p", [Drift]);
+                    lager:warning("NkCLUSTER node big time drift: ~p", [Drift]);
                     % not_authorized(time_drift, State);
                 false ->
                     ok
@@ -518,7 +520,8 @@ process_auth(#{stage:=3, listen:=Listen, meta:=Meta, hash:=Hash}=Msg, State) ->
         Hash ->
             % The remote (connecting) side has a valid password
             % We send listen and meta
-            lager:notice("Node '~p' connected to ~s", [Type, get_remote_id(State)]),
+            lager:info("NkCLUSTER node ~p connected to ~s", 
+                       [Type, get_remote_id(State)]),
             State1 = State#state{
                 remote_listen = Listen,
                 remote_meta = Meta,
@@ -547,7 +550,7 @@ process_auth(#{stage:=4, listen:=Listen, meta:=Meta}=Msg, State) ->
         remote_meta = Meta
     },
     #state{type=Type} = State,
-    lager:notice("Node '~p' connected to ~s", [Type, get_remote_id(State)]),
+    lager:info("NkCLUSTER node ~p connected to ~s", [Type, get_remote_id(State)]),
     connect_nodes(Msg),
     register(State2),
     #state{auth_froms=AuthFroms} = State,
@@ -616,19 +619,17 @@ ret_send(Msg, State) ->
     ok | error.
 
 raw_send(Msg, #state{nkport=NkPort}) when is_binary(Msg) ->
-    % lager:warning("RET1: ~p", [Msg]),
     case nkpacket_connection_lib:raw_send(NkPort, Msg) of
         ok ->
             ok;
         {error, closed} ->
             error;
         {error, Error} ->
-            lager:notice("Node error sending ~p: ~p", [Msg, Error]),
+            lager:notice("NkCLUSTER node error sending ~p: ~p", [Msg, Error]),
             error
     end;
 
 raw_send(Msg, State) ->
-    % lager:warning("RET2: ~p", [Msg]),
     raw_send(encode(Msg), State).
 
 

@@ -46,7 +46,7 @@
 
     #{
         id => nkcluster:node_id(),
-        pids => [pid()],
+        proxies => [pid()],
         status => nkcluster:node_status(),
         listen => [nklib:uri()],
         meta => [nklib:token()],
@@ -127,6 +127,7 @@ new_connection(NodeId) ->
     end.
 
 
+%% @doc Manually connect to a remote worker, without knowing the NodeId
 -spec connect(nklib:user_uri(), 
               #{password=>binary(), tls_opts => nkpacket:tls_opts()}) ->
     {ok, nkcluster:node_id(), map(), pid()} | {error, term()}.
@@ -173,7 +174,6 @@ announced(NodeId, ConnPid) ->
     ok.
 
 control_update(NodeId, ControlPid, Status) ->
-    lager:debug("Control status from ~s: ~p", [NodeId, Status]),
     gen_server:cast(?MODULE, {control_update, NodeId, ControlPid, Status}).
 
 
@@ -234,12 +234,11 @@ handle_call(Msg, _From, State) ->
     {noreply, #state{}}.
 
 handle_cast({announced, NodeId, ConnPid}, State) ->
-    lager:info("Announce from ~s (~p)", [NodeId, ConnPid]),
+    lager:info("NkCLUSTER Nodes announce from ~s (~p)", [NodeId, ConnPid]),
     spawn(fun() -> try_connect(NodeId, ConnPid, #{}) end),
     {noreply, State};
 
 handle_cast({control_update, NodeId, Pid, Info}, State) ->
-    % lager:info("Update from ~s: ~p", [NodeId, Info]),
     master_update(NodeId, Pid, Info, State),
     {noreply, do_update(NodeId, Pid, Info, State)};
 
@@ -335,7 +334,7 @@ master_update_all(#state{nodes=Nodes}=State) ->
 
 %% @private
 node_to_info(NodeId, #node{info=Info, pids=Pids}) ->
-    Info#{id=>NodeId, pids=>Pids}.
+    Info#{id=>NodeId, proxies=>Pids}.
 
 
 %% @private
@@ -359,7 +358,7 @@ do_update(NodeId, Pid, Info, #state{nodes=Nodes, pids=Pids}=State) ->
         NodeId ->
             Pids;
         _ ->
-            lager:warning("NkCLUSTER Master received update for OLD node"),
+            lager:warning("NkCLUSTER Nodes received update for OLD node"),
             Pids
     end,
     State#state{nodes=Nodes2, pids=Pids2}.
@@ -374,7 +373,7 @@ try_connect(NodeId, Connect, Opts) ->
         {ok, Pid} ->
             {ok, Pid};
         {error, _} ->
-            lager:info("NkCLUSTER launching connection to ~s", [NodeId]),
+            lager:info("NkCLUSTER Nodes starting proxy to ~s", [NodeId]),
             Arg = Opts#{connect=>Connect},
             case nkdist:start_proc({nkcluster, NodeId}, nkcluster_node_proxy, Arg) of
                 {ok, Pid} ->
@@ -382,7 +381,7 @@ try_connect(NodeId, Connect, Opts) ->
                 {error, {already_started, Pid}} ->
                     {ok, Pid};
                 {error, Error} ->
-                    lager:notice("Nodes could not connect to ~s: ~p)", [NodeId, Error]),
+                    lager:warning("NkCLUSTER Nodes could not start proxy: ~p", [Error]),
                     {error, Error}
             end
     end.
