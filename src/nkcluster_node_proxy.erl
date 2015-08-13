@@ -457,7 +457,6 @@ handle_info(send_ping, #state{connected=true}=State) ->
     Cmd = {req, nkcluster, {ping, Now}},
     Ping = ping_time(),
     Timeout = Ping * 75 div 100,
-    % lager:error("SEND PING: ~p", [Timeout]),
     State2 = case send_rpc(Cmd, #{timeout=>Timeout}, ping, State) of
         {ok, State1} -> 
             State1;
@@ -565,7 +564,10 @@ update_status(Status, Connected, State) ->
         status = OldStatus, 
         listen = Listen, 
         meta = Meta,
-        classes = Classes
+        classes = Classes,
+        latencies = Latencies,
+        conn_id = Remote,
+        conn_pid = ConnPid
     } = State,
     case OldStatus==Status of
         true -> 
@@ -578,7 +580,10 @@ update_status(Status, Connected, State) ->
                     Update = #{
                         status => Status,
                         meta => Meta, 
-                        listen => Listen
+                        listen => Listen,
+                        latencies => Latencies,
+                        remote => Remote,
+                        conn_pid => ConnPid
                     },
                     nkcluster_nodes:control_update(NodeId, self(), Update),
                     send_event(Classes, {nkcluster, {node_status, Status}}, State),
