@@ -19,14 +19,17 @@
 %% -------------------------------------------------------------------
 
 %% @doc NkCLUSTER Agent Management
-%% For masters, it tries to connect to other erlang nodes
+%%
+%% For control nodes:
+%% - it tries to connect to other erlang nodes (pinging them)
+%%
 %% For all:
-%% - Monitors if any "primary" connection is available, and sends 
-%%   os information
-%% - If none is available, it tries to connect
-%% - If cannot connect in a time, it powers off the machine if in cloud
-
-
+%% - gets periodic statistics, and tries to send an update for each
+%%     - if it cannot (because of no primary connection) it will try to 
+%%       send and announce. The announce will reach nkcluster_nodes, and will
+%%       start a new proxy if none is up
+%%     - if it cannot (because of no connection) it will try to start a connection
+%% - waits for pings from the control, if timeout will try to connect
 -module(nkcluster_agent).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
@@ -124,7 +127,10 @@ connect(NodeAddrs, Opts) ->
     end.
 
 
-%% @private Pings all control nodes to join them
+%% @private Pings all control nodes (to join them)
+-spec ping_all_nodes() ->
+    ok | {error, term()}.
+
 ping_all_nodes() ->
     ClusterAddr = nkcluster_app:get(cluster_addr),
     case nkpacket:multi_resolve(ClusterAddr, #{valid_schemes=>[nkcluster]}) of
