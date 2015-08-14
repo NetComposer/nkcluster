@@ -52,7 +52,7 @@
 -type rpc() ::
     {req, nkcluster:job_class(), nkcluster:request()} |
     {tsk, nkcluster:job_class(), nkcluster:task_id(), nkcluster:task()} |
-    {cmd, nkcluster:task_id(), nkcluster:command()}.
+    {cmd, nkcluster:job_class(), nkcluster:task_id(), nkcluster:command()}.
 
 
 
@@ -570,8 +570,8 @@ process_rpc({req, Class, Req}, From) ->
 process_rpc({tsk, Class, TaskId, Spec}, From) ->
     nkcluster_jobs:task(Class, TaskId, Spec, From);
 
-process_rpc({cmd, TaskId, Cmd}, From) ->
-    nkcluster_jobs:command(TaskId, Cmd, From).
+process_rpc({cmd, Class, TaskId, Cmd}, From) ->
+    nkcluster_jobs:command(Class, TaskId, Cmd, From).
 
 
 %% @private

@@ -115,7 +115,7 @@ request(_, _From) ->
 
 %% @private
 -spec task(nkcluster:task_id(), term()) ->
-    {ok, pid()} | {error, term()}.
+    {ok, pid()} | {ok, term(), pid()} | {error, term()}.
 
 
 task(_TaskId, {write_file, Path}) ->
