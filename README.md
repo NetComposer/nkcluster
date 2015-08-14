@@ -184,7 +184,7 @@ Once defined your _job_class_ module, you can send requests, start tasks and sen
 
 You can send requests calling `nkcluster:request/3,4`. The callback `request/2` will be called at the remote (worker) side, and your call will block until a response is sent back. You can define a _timeout_, and also ask NkCLUSTER to start a new, exclusive connection to the worker if possible. If the connection or the node fails, an error will be returned. If you are not asking for a new, exclusive connection, you request processing time must be very short (< 100 msecs). Otherwise, the periodic ping will be delayed and the connection may be dropped.
 
-For long-running jobs, you must start a new task, calling `nkcluster:task/3,4`. The callback `task/2` will be called at the remote side, and it must start a new Erlang process and return its `pid()` and, optionally, a reply. A _job_id_ is returned to the caller, along with the reply if sent. You can send mesages to any started task calling `nkcluster_jobs:command/3,4`.
+For long-running jobs, you must start a new task, calling `nkcluster:task/3,4`. The callback `task/2` will be called at the remote side, and it must start a new Erlang process and return its `pid()` and, optionally, a reply. A _job_id_ is returned to the caller, along with the reply if sent. You can send mesages to any started task calling `nkcluster_jobs:command/4,5`.
 
 The started task can send _events_ back to the control node at any moment, calling `nkcluster_jobs:send_event/2`. The event will arrive at the control node, and the callback `event/2` will be called for the corresponding job class. NkCLUSTER will also send some automatic events:
 

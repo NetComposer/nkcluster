@@ -387,7 +387,7 @@ conn_handle_info({'EXIT', _, normal}, State) ->
     {ok, State};
 
 conn_handle_info(Msg, State) ->
-    lager:warning("Module ~p received unexpected info: ~p", [?MODULE, Msg]),
+    lager:info("Module ~p received unexpected info: ~p", [?MODULE, Msg]),
     {ok, State}.
 
 
