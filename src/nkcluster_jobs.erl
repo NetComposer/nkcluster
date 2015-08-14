@@ -61,38 +61,39 @@ request(Class, Spec, From) ->
 task(Class, TaskId, Spec, _From) ->
     lager:debug("New TASK '~p' ~s: ~p", [Class, TaskId, Spec]),
     case nkcluster_agent:get_status() of
-        {ok, ready} ->
-            try Class:task(TaskId, Spec) of
-                {ok, Pid} ->
-                    task_started(Class, TaskId, Pid, ok);
-                {ok, Pid, Reply} ->
-                    task_started(Class, TaskId, Pid, {ok, Reply});
-                {error, Error} ->
-                    {error, Error}
-            catch
-                C:E->
-                    {error, {{C, E}, erlang:get_stacktrace()}}
+        ready ->
+            case get_task(Class, TaskId) of
+                not_found ->
+                    try Class:task(TaskId, Spec) of
+                        {ok, Pid} when is_pid(Pid) ->
+                            task_started(Class, TaskId, Pid),
+                            {reply, ok};
+                        {ok, Reply, Pid} when is_pid(Pid) ->
+                            task_started(Class, TaskId, Pid),
+                            {reply, {ok, Reply}};
+                        {error, Error} ->
+                            {error, Error}
+                    catch
+                        C:E->
+                            {error, {{C, E}, erlang:get_stacktrace()}}
+                    end;
+                {ok, _Pid} ->
+                    {error, already_started}
             end;
-        {ok, Status} ->
+        Status ->
             {error, {node_not_ready, Status}}
     end.
 
 
 %% @private
-task_started(Class, TaskId, Pid, Reply) ->
-    ok = gen_server:call(?MODULE, {start, Class, TaskId, Pid}),
-    send_event(Class, {nkcluster, {task_started, TaskId}}),
-    {reply, Reply}.
-
-
-%% @private
--spec command(nkcluster:task_id(), term(), nkcluster_protocol:from()) ->
+-spec command(nkcluster:job_class(), nkcluster:task_id(), term(), 
+              nkcluster_protocol:from()) ->
     {reply, term()} | {error, term()} | defer.
 
-command(TaskId, Spec, From) ->
-    case gen_server:call(?MODULE, {get_job, TaskId}) of
-        {ok, Class, Pid} ->
-            lager:debug("New Cmd '~p' ~s: ~p", [Class, TaskId, Spec]),
+command(Class, TaskId, Spec, From) ->
+    case get_task(Class, TaskId) of
+        {ok, Pid} ->
+            lager:debug("New Cmd '~p' ~s: ~p (~p)", [Class, TaskId, Spec, Pid]),
             try Class:command(Pid, Spec, From) of
                 {reply, Reply} ->
                     {reply, Reply};
@@ -105,8 +106,24 @@ command(TaskId, Spec, From) ->
                     {error, {{C, E}, erlang:get_stacktrace()}}
             end;
         not_found ->
-            {error, job_failed}
+            {error, task_not_found}
     end.
+
+
+%% @private
+-spec get_task(nkcluster:job_class(), nkcluster:task_id()) ->
+    {ok, pid()} | not_found.
+
+get_task(Class, TaskId) ->
+    gen_server:call(?MODULE, {get_task, Class, TaskId}).
+
+
+%% @private
+-spec task_started(nkcluster:job_class(), nkcluster:task_id(), pid()) ->
+    ok.
+
+task_started(Class, TaskId, Pid) ->
+    ok = gen_server:call(?MODULE, {task_started, Class, TaskId, Pid}).
 
 
 %% @doc

@@ -37,8 +37,7 @@
     {reply, term()} | {error, term()} | defer.
 
 request(get_status, _From) ->
-    {ok, Status} = nkcluster_agent:get_status(),
-    {reply, Status};
+    {reply, nkcluster_agent:get_status()};
 
 request({set_status, Status}, _From) ->
     case nkcluster_agent:set_status(Status) of

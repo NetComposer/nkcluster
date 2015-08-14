@@ -692,7 +692,7 @@ get_remote(State) ->
         remote_meta = Meta
     } = State,
     Remote = get_remote_id(State),
-    {ok, Status} = nkcluster_agent:get_status(),
+    Status = nkcluster_agent:get_status(),
     {ok, NodeId, #{status=>Status, listen=>Listen, meta=>Meta, remote=>Remote}}.
 
 

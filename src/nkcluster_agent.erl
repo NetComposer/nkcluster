@@ -73,10 +73,11 @@ is_control() ->
 
 %% @doc Gets current node status
 -spec get_status() ->
-    {ok, nkcluster:node_status()}.
+    nkcluster:node_status().
 
 get_status() ->
-    gen_server:call(?MODULE, get_status).
+    [{Status, _}|_] = nklib_proc:values(?MODULE),
+    Status.
 
 
 %% @doc Sets current node status
@@ -223,6 +224,7 @@ init([]) ->
         os_type = OsType,
         connecting = false
     },
+    nklib_proc:put(?MODULE, ready),
     case is_control() of
         true -> spawn(fun() -> ping_all_nodes() end);
         false -> ok
@@ -446,6 +448,7 @@ do_connect(Type, Host, [{Conns, Opts}|Rest]) ->
 
 %% @private
 set_updated_status(Status, From, State) ->
+    nklib_proc:put(?MODULE, Status),
     case From of
         none -> ok;
         _ -> gen_server:reply(From, ok)
