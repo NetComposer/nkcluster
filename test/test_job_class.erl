@@ -19,7 +19,7 @@
 %% -------------------------------------------------------------------
 
 %% @doc NkCLUSTER Core Worker Processes
--module(test_jobs).
+-module(test_job_class).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(nkcluster_job_class).
 
@@ -46,8 +46,14 @@ request(_, _From) ->
 
 %% @private
 -spec task(nkcluster:task_id(), term()) ->
-    {ok, pid()} | {error, term()}.
+    {ok, pid()} | {ok, term(), pid()} | {error, term()}.
 
+
+task(TaskId, task1) ->
+    {ok, spawn_link(fun() -> my_task(TaskId) end)};
+
+task(TaskId, task2) ->
+    {ok, reply2, spawn_link(fun() -> my_task(TaskId) end)};
 
 task(_TaskId, _) ->
     {error, unknown_task}.
@@ -57,6 +63,31 @@ task(_TaskId, _) ->
 -spec command(pid(), nkcluster:command(), nkcluster_protocol:from()) ->
     {reply, ok} | defer.
 
+command(Pid, cmd1, _From) ->
+    Ref = make_ref(),
+    Pid ! {cmd1, Ref, self()},
+    receive
+        {Ref, Res} -> {reply, Res}
+    after  
+        1000 -> error(?LINE)
+    end;
+
+command(Pid, cmd2, From) ->
+    Pid ! {cmd2, From},
+    defer;
+
+command(Pid, cmd3, _From) ->
+    Pid ! cmd3,
+    {reply, reply3};
+
+command(Pid, cmd4, _From) ->
+    Pid ! cmd4,
+    {reply, reply4};
+
+command(Pid, stop, _From) ->
+    Pid ! stop,
+    {reply, stop};
+
 command(_Pid, _Cmd, _From) ->
     {reply, unknown_command}.
 
@@ -65,13 +96,8 @@ command(_Pid, _Cmd, _From) ->
     ok.
 
 status(Pid, Status) ->
-    lager:warning("Test Jobs Event Status: ~p", [{Pid, Status}]),
-    case nklib_config:get(nkcluster_test, pid) of
-        Pid when is_pid(Pid) ->
-            Pid ! {test_jobs_status, Pid, Status};
-        _ -> 
-            lager:info("Test Jobs Event Status: ~p", [{Pid, Status}])
-    end.
+    Pid ! {status, Status},
+    ok.
     
 
 %% @private
@@ -79,10 +105,45 @@ status(Pid, Status) ->
     ok.
 
 event(NodeId, Data) ->
+    % lager:warning("W: ~p", [Data]),
     case nklib_config:get(nkcluster_test, pid) of
         Pid when is_pid(Pid) ->
-            Pid ! {test_jobs_event, NodeId, Data};
+            Pid ! {test_job_class_event, NodeId, Data};
         _ -> 
             lager:info("Test Jobs Event: ~p", [{NodeId, Data}])
     end.
+
+
+%%%% Internal
+
+my_task(TaskId) ->
+    receive
+        {cmd1, Ref, Pid} -> 
+            Pid ! {Ref, reply1},
+            my_task(TaskId);
+        {cmd2, From} ->
+            nkcluster_jobs:reply(From, {reply, reply2}),
+            my_task(TaskId);
+        cmd3 ->
+            error(error3);
+        cmd4 ->
+            nkcluster_jobs:send_event(test_job_class, event4),
+            my_task(TaskId);
+        stop ->
+            ok;
+        {status, Status} ->
+            nkcluster_jobs:send_event(test_job_class, {status, TaskId, Status}),
+            case Status of
+                stopping -> erlang:send_after(500, self(), stop);
+                _ -> ok
+            end,
+            my_task(TaskId)
+    end.
+
+
+
+
+
+
+
 

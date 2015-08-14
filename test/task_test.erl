@@ -24,26 +24,33 @@
 -compile([export_all]).
 -include_lib("eunit/include/eunit.hrl").
 
-jobs_test_() ->
+-define(EVENT(NodeId), event(NodeId, ?LINE)).
+-define(CLASS, test_job_class).
+
+tasks_test_() ->
   	{setup,  
     	fun() -> 
-    		ok = nkcluster_app:start()
+    		ok = nkcluster_app:start(),
+			{ok, NodeId, _Info, _} = nkcluster_nodes:connect("nkcluster://127.0.0.1:15001", #{}),
+			NodeId
 		end,
-		fun(_) -> 
-			ok 
+		fun(NodeId) -> 
+			nkcluster_agent:clear_cluster_addr(),
+			ok = nkcluster_nodes:stop(NodeId)
 		end,
-	    fun(_) ->
+	    fun(NodeId) ->
 		    [
-		    	% fun() -> req1() end,
-		    	% fun() -> req2() end
+		    	fun() -> req1(NodeId) end,
+		    	fun() -> req2(NodeId) end,
+		    	fun() -> task(NodeId) end,
+		    	fun() -> status(NodeId) end
 			]
 		end
   	}.
 
 
-req1() ->
+req1(NodeId) ->
 	?debugMsg("Starting REQ1 test"),
-	{ok, NodeId, _Info, _} = nkcluster_nodes:connect("nkcluster://127.0.0.1:15001", #{}),
 
 	{ok, [{<<"test1">>, []}]} = nkcluster:get_meta(NodeId),
 	{ok, Meta1} = nkcluster:update_meta(NodeId, "meta2;a=1;b=2, meta3;master"),
@@ -84,17 +91,103 @@ req1() ->
 	{ok, Bin2} = file:read_file("/tmp/nkcluster.1"),
 
 	ok = nkcluster:load_module(NodeId, ?MODULE),
-	ok = nkcluster:load_modules(NodeId, nkcluster).
+	ok = nkcluster:load_modules(NodeId, nkcluster),
+
+	ok.
 
 
-req2() ->
+
+req2(NodeId) ->
 	?debugMsg("Starting REQ2 test"),
-	{ok, NodeId, _Info, _} = nkcluster_nodes:connect("nkcluster://127.0.0.1:15001", #{}),
 
-	{reply, my_response} = nkcluster:request(NodeId, test_jobs, my_request),
-	{error, unknown_request} = nkcluster:request(NodeId, test_jobs, other),
+	{reply, my_response} = nkcluster:request(NodeId, ?CLASS, my_request),
+	{error, unknown_request} = nkcluster:request(NodeId, ?CLASS, other),
 	{error, {{error, my_error}, _}} = 
-		nkcluster:request(NodeId, test_jobs, {error, my_error}).
+		nkcluster:request(NodeId, ?CLASS, {error, my_error}),
+	
+	ok.
+
+
+task(NodeId) ->
+	?debugMsg("Starting TASK test"),
+	nklib_config:put(nkcluster_test, pid, self()),
+
+	{ok, []} = nkcluster:get_tasks(NodeId, ?CLASS),
+	{ok, Task1} = nkcluster:task(NodeId, ?CLASS, task1),
+	{nkcluster, {task_started, Task1}} = ?EVENT(NodeId),
+	{ok, [Task1]} = nkcluster:get_tasks(NodeId, ?CLASS),
+	{reply, reply2, Task2} = nkcluster:task(NodeId, ?CLASS, task2),
+	{nkcluster, {task_started, Task2}} = ?EVENT(NodeId),
+	{ok, List2} = nkcluster:get_tasks(NodeId, ?CLASS),
+	true = lists:sort([Task1, Task2]) == lists:sort(List2),
+
+	{ok, Pid2} = nkcluster_jobs:get_task(?CLASS, Task2),
+	exit(Pid2, kill),
+	{nkcluster, {task_stopped, Task2, killed}} = ?EVENT(NodeId),
+	{ok, [Task1]} = nkcluster:get_tasks(NodeId, ?CLASS),
+
+	{error, task_not_found} = nkcluster:command(NodeId, ?CLASS, Task2, cmd1),
+	{reply, reply1} = nkcluster:command(NodeId, ?CLASS, Task1, cmd1),
+	{reply, reply2} = nkcluster:command(NodeId, ?CLASS, Task1, cmd2),
+	{reply, reply3} = nkcluster:command(NodeId, ?CLASS, Task1, cmd3),
+	{nkcluster, {task_stopped, Task1, {error3, _}}} = ?EVENT(NodeId),
+	{ok, []} = nkcluster:get_tasks(NodeId, ?CLASS),
+
+	{ok, Task3} = nkcluster:task(NodeId, ?CLASS, task1),
+	{nkcluster, {task_started, Task3}} = ?EVENT(NodeId),
+	{reply, reply4} = nkcluster:command(NodeId, ?CLASS, Task3, cmd4),
+	event4 = ?EVENT(NodeId),
+	{reply, stop} = nkcluster:command(NodeId, ?CLASS, Task3, stop),
+	{nkcluster, {task_stopped, Task3, normal}} = ?EVENT(NodeId),
+	{ok, []} = nkcluster:get_tasks(NodeId, ?CLASS),
+
+	ok.
+	
+
+
+status(NodeId) ->
+	?debugMsg("Starting TASK test"),
+	nklib_config:put(nkcluster_test, pid, self()),
+
+	{ok, []} = nkcluster:get_tasks(NodeId, ?CLASS),
+	{ok, Task1} = nkcluster:task(NodeId, ?CLASS, task1),
+	{nkcluster, {task_started, Task1}} = ?EVENT(NodeId),
+
+	ok = nkcluster:set_status(NodeId, standby),
+	{nkcluster, {node_status, standby}} = ?EVENT(NodeId),
+	{status, Task1, standby} = ?EVENT(NodeId),
+	{error, {node_not_ready, standby}} = nkcluster:task(NodeId, ?CLASS, task1),
+
+	ok = nkcluster:set_status(NodeId, stopped),
+	{nkcluster, {node_status, stopping}} = ?EVENT(NodeId),
+	{status, Task1, stopping} = ?EVENT(NodeId),
+	%% The task receives the stop request and will stop after 0.5 secs
+	{nkcluster, {task_stopped, Task1, normal}} = ?EVENT(NodeId),
+	%% Agent will check every 1 sec to see if tasks have stopped
+	{nkcluster, {node_status, stopped}} = ?EVENT(NodeId),
+	
+	ok = nkcluster:set_status(NodeId, ready),
+	{nkcluster, {node_status, ready}} = ?EVENT(NodeId),
+
+	ok.
+
+
+
+
+
+%%% Internal
+
+event(NodeId, Line) ->
+	receive 
+		{test_job_class_event, NodeId, Msg} -> Msg
+	after 5000 -> 
+		error(Line)
+	end.
+
+
+
+
+
 
 
 

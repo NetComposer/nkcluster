@@ -318,7 +318,7 @@ handle_info(check_stopped, #state{status=stopping}=State) ->
         {ok, []} ->
             set_updated_status(stopped, none, State);
         _ ->
-            erlang:send_after(5000, self(), check_stopped),
+            erlang:send_after(1000, self(), check_stopped),
             {noreply, State}
     end;
 

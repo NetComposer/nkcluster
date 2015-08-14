@@ -31,8 +31,6 @@
 
 basic_test_() ->
   	{setup, 
-
-
     	fun() -> 
     		ok = nkcluster_app:start()
 		end,
@@ -53,7 +51,7 @@ basic_test_() ->
 connect() ->
 	?debugMsg("Starting CONNECT test"),
 	true = nkcluster_agent:is_control(),
-	{ok, ready} = nkcluster_agent:get_status(),
+	ready = nkcluster_agent:get_status(),
 	NodeId = nkcluster_agent:node_id(),
 	{ok, []} = nkdist:get_procs(),
 	{error, {invalid_scheme, http}} = nkcluster_agent:connect("http://localhost", #{}),
@@ -171,14 +169,7 @@ proxy() ->
 
 
 
-
-
-
-
-
-
-
-
+%%% Internal
 
 event(NodeId, Line) ->
 	receive 
