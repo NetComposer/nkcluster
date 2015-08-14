@@ -23,10 +23,10 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
 -export([get_info/1, set_status/2]).
--export([get_tasks/1, get_tasks/2, get_meta/1, update_meta/2, get_data/2, put_data/3]).
--export([call/5, spawn_call/5]).
+-export([get_tasks/1, get_tasks/2, get_meta/1, update_meta/2, remove_meta/2]).
+-export([get_data/2, put_data/3, del_data/2, call/5, spawn_call/5]).
 -export([send_file/3, send_bigfile/3, load_modules/2, load_module/2]).
--export([request/3, request/4, task/3, task/4, command/3, command/4]).
+-export([request/3, request/4, task/3, task/4, command/4, command/5]).
 
 -export_type([node_id/0, conn_id/0, job_class/0, task_id/0]).
 -export_type([request/0, task/0, command/0, reply/0, event/0]).
@@ -117,6 +117,21 @@ update_meta(Node, Tokens) ->
     end.
 
 
+%% @doc Removes some metadata
+-spec remove_meta(conn_spec(), nklib:token()) ->
+    {ok, [nklib:token()]} | {error, term()}.
+
+remove_meta(Node, Tokens) ->
+    case nklib_parse:tokens(Tokens) of
+        error -> 
+            {error, invalid_tokens};
+        Parsed -> 
+            Keys = [Key || {Key, _} <- Parsed],
+            request2(Node, ?CLASS, {remove_meta, Keys})
+    end.
+
+
+
 %% @doc Gets remotely stored data
 -spec get_data(conn_spec(), term()) ->
     {ok, term()} | {error, term()}.
@@ -131,6 +146,14 @@ get_data(Node, Key) ->
 
 put_data(Node, Key, Val) ->
     request2(Node, ?CLASS, {put_data, Key, Val}).
+
+
+%% @doc Removes data remotely
+-spec del_data(conn_spec(), term()) ->
+    ok | {error, term()}.
+
+del_data(Node, Key) ->
+    request2(Node, ?CLASS, {del_data, Key}).
 
 
 %% @doc Calls a remote erlang functiond
@@ -219,7 +242,7 @@ send_bigfile(Node, Path, RemotePath) ->
 do_send_bigfile(Node, Device, TaskId, Opts) ->
     case file:read(Device, 1024*1024) of
         {ok, Data} ->
-            case command(Node, TaskId, {write_file, Data}, Opts) of
+            case command(Node, ?CLASS, TaskId, {write_file, Data}, Opts) of
                 {reply, ok} ->
                     do_send_bigfile(Node, Device, TaskId, Opts);
                 {error, Error} ->
@@ -228,7 +251,7 @@ do_send_bigfile(Node, Device, TaskId, Opts) ->
             end;
         eof ->
             file:close(Device),
-            case command(Node, TaskId, {write_file, eof}, Opts) of
+            case command(Node, ?CLASS, TaskId, {write_file, eof}, Opts) of
                 {reply, ok} -> ok;
                 {error, Error} -> {error, Error}
             end;
@@ -351,20 +374,20 @@ task(Node, Class, Spec, Opts) ->
     end.
 
 
-%% @doc Equivalent to command(Node, TaskId, Cmd, #{})
--spec command(conn_spec(), task_id(), command()) ->
+%% @doc Equivalent to command(Node, JobClass, TaskId, Cmd, #{})
+-spec command(conn_spec(), job_class(), task_id(), command()) ->
     {ok, reply()} | {error, term()}.
 
-command(Node, TaskId, Cmd) ->
-    command(Node, TaskId, Cmd, #{}).
+command(Node, JobClass, TaskId, Cmd) ->
+    command(Node, JobClass, TaskId, Cmd, #{}).
 
 
 %% @doc Sends a message to a remote job
--spec command(conn_spec(), task_id(), command(), req_opts()) ->
+-spec command(conn_spec(), job_class(), task_id(), command(), req_opts()) ->
     {reply, reply()} | {error, term()}.
 
-command(Node, TaskId, Cmd, Opts) ->
-    nkcluster_nodes:rpc(Node, {cmd, TaskId, Cmd}, Opts).
+command(Node, JobClass, TaskId, Cmd, Opts) ->
+    nkcluster_nodes:rpc(Node, {cmd, JobClass, TaskId, Cmd}, Opts).
 
 
 

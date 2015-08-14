@@ -24,7 +24,7 @@
 -behaviour(application).
 
 -export([start/0, start/2, stop/1]).
--export([get/1, put/2]).
+-export([get/1, put/2, del/1]).
 
 -include("nkcluster.hrl").
 -include_lib("nklib/include/nklib.hrl").
@@ -58,7 +58,12 @@ start(_Type, _Args) ->
         is_control => boolean,
         listen => uris,
         tls_opts => nkpacket_util:tls_spec(),
-        node_id => binary
+        ping_time => {integer, 1000, 60000},
+        proxy_connect_retry => {integer, 1000, none},
+        stats_time => {integer, 1000, none},
+        node_id => binary,
+        staged_joins => boolean,
+        pbkdf2_iters => {integer, 1, none}
     },
     Defaults = [
         {cluster_name, "nkcluster"},
@@ -67,7 +72,12 @@ start(_Type, _Args) ->
         {meta, ""},
         {is_control, true},
         {listen, "nkcluster://all;transport=tls"},
-        {tls_opts, nkpacket_config:tls_opts()}
+        {tls_opts, nkpacket_config:tls_opts()},
+        {ping_time, 5000},
+        {proxy_connect_retry, 10000},
+        {stats_time, 10000},
+        {staged_joins, false},
+        {pbkdf2_iters, 20000}
     ],
     case nklib_config:load_env(?APP, ?APP, Defaults, ConfigSpec) of
         ok ->
@@ -131,6 +141,10 @@ get(Key, Default) ->
 put(Key, Value) ->
     nklib_config:put(?APP, Key, Value).
 
+
+%% @doc updates a configuration value
+del(Key) ->
+    nklib_config:del(?APP, Key).
 
 
 %% @private

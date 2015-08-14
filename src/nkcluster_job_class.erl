@@ -48,7 +48,7 @@
 %% When the process ends, an event {nkcluster, {task_stopped, Reason, TaskId}} 
 %% will be sent.
 -callback task(nkcluster:task_id(), nkcluster:task()) ->
-    {ok, pid()} | {ok, pid(), nkcluster:reply()} | {error, term()}.
+    {ok, pid()} | {ok, nkcluster:reply(), pid()} | {error, term()}.
 
 
 %% @doc This callback is called at the worker side, when a command is sent to a

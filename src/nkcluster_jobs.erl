@@ -24,8 +24,8 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
 
--export([request/3, task/4, command/3, reply/2, send_event/2, get_tasks/0, get_tasks/1]).
--export([updated_status/1]).
+-export([request/3, task/4, command/4, reply/2, send_event/2, get_tasks/0, get_tasks/1]).
+-export([get_task/2, updated_status/1]).
 -export([start_link/0, init/1, terminate/2, code_change/3, handle_call/3,   
             handle_cast/2, handle_info/2]).
 
@@ -61,38 +61,39 @@ request(Class, Spec, From) ->
 task(Class, TaskId, Spec, _From) ->
     lager:debug("New TASK '~p' ~s: ~p", [Class, TaskId, Spec]),
     case nkcluster_agent:get_status() of
-        {ok, ready} ->
-            try Class:task(TaskId, Spec) of
-                {ok, Pid} ->
-                    task_started(Class, TaskId, Pid, ok);
-                {ok, Pid, Reply} ->
-                    task_started(Class, TaskId, Pid, {ok, Reply});
-                {error, Error} ->
-                    {error, Error}
-            catch
-                C:E->
-                    {error, {{C, E}, erlang:get_stacktrace()}}
+        ready ->
+            case get_task(Class, TaskId) of
+                not_found ->
+                    try Class:task(TaskId, Spec) of
+                        {ok, Pid} when is_pid(Pid) ->
+                            task_started(Class, TaskId, Pid),
+                            {reply, ok};
+                        {ok, Reply, Pid} when is_pid(Pid) ->
+                            task_started(Class, TaskId, Pid),
+                            {reply, {ok, Reply}};
+                        {error, Error} ->
+                            {error, Error}
+                    catch
+                        C:E->
+                            {error, {{C, E}, erlang:get_stacktrace()}}
+                    end;
+                {ok, _Pid} ->
+                    {error, already_started}
             end;
-        {ok, Status} ->
+        Status ->
             {error, {node_not_ready, Status}}
     end.
 
 
 %% @private
-task_started(Class, TaskId, Pid, Reply) ->
-    ok = gen_server:call(?MODULE, {start, Class, TaskId, Pid}),
-    send_event(Class, {nkcluster, {task_started, TaskId}}),
-    {reply, Reply}.
-
-
-%% @private
--spec command(nkcluster:task_id(), term(), nkcluster_protocol:from()) ->
+-spec command(nkcluster:job_class(), nkcluster:task_id(), term(), 
+              nkcluster_protocol:from()) ->
     {reply, term()} | {error, term()} | defer.
 
-command(TaskId, Spec, From) ->
-    case gen_server:call(?MODULE, {get_job, TaskId}) of
-        {ok, Class, Pid} ->
-            lager:debug("New Cmd '~p' ~s: ~p", [Class, TaskId, Spec]),
+command(Class, TaskId, Spec, From) ->
+    case get_task(Class, TaskId) of
+        {ok, Pid} ->
+            lager:debug("New Cmd '~p' ~s: ~p (~p)", [Class, TaskId, Spec, Pid]),
             try Class:command(Pid, Spec, From) of
                 {reply, Reply} ->
                     {reply, Reply};
@@ -105,8 +106,24 @@ command(TaskId, Spec, From) ->
                     {error, {{C, E}, erlang:get_stacktrace()}}
             end;
         not_found ->
-            {error, job_failed}
+            {error, task_not_found}
     end.
+
+
+%% @private
+-spec get_task(nkcluster:job_class(), nkcluster:task_id()) ->
+    {ok, pid()} | not_found.
+
+get_task(Class, TaskId) ->
+    gen_server:call(?MODULE, {get_task, Class, TaskId}).
+
+
+%% @private
+-spec task_started(nkcluster:job_class(), nkcluster:task_id(), pid()) ->
+    ok.
+
+task_started(Class, TaskId, Pid) ->
+    ok = gen_server:call(?MODULE, {task_started, Class, TaskId, Pid}).
 
 
 %% @doc
@@ -134,7 +151,7 @@ reply({ConnId, TransId}, {Class, Reply}) when Class==reply; Class==error ->
 
 %% @doc
 -spec send_event(nkcluster:job_class(), nkcluster:event()) ->
-    ok.
+    ok | {error, term()}.
 
 send_event(Class, Event) ->
     nkcluster_protocol:send_event(Class, Event).
@@ -159,15 +176,9 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 
--record(task, {
-    class :: nkcluster:job_class(), 
-    pid :: pid(),
-    mon :: reference()
-}).
-
 -record(state, {
-    tasks :: #{nkcluster:task_id() => #task{}},
-    pids :: #{pid() => nkcuster:task_id()}
+    tasks :: #{{nkcluster:job_class(), nkcluster:task_id()} => pid()},
+    pids :: #{pid() => {nkcluster:job_class(), nkcuster:task_id()}}
 }).
 
 
@@ -185,38 +196,39 @@ init([]) ->
     {reply, term(), #state{}} | {noreply, #state{}}.
 
 handle_call(get_tasks, _From, #state{tasks=Tasks}=State) ->
-    Data = [
-        {Class, TaskId, Pid} 
-        || {TaskId, #task{class=Class, pid=Pid}} <- maps:to_list(Tasks)
-    ],
-    {reply, {ok, Data}, State};
+    {reply, {ok, maps:keys(Tasks)}, State};
 
 handle_call({get_tasks, Class}, _From, #state{tasks=Tasks}=State) ->
-    Data = [
-        {TaskId, Pid} 
-        || {TaskId, #task{class=C, pid=Pid}} <- maps:to_list(Tasks), C==Class
-    ],
+    Data = [TaskId || {C, TaskId} <- maps:keys(Tasks), C==Class],
     {reply, {ok, Data}, State};
 
-handle_call({get_job, TaskId}, _From, #state{tasks=Tasks} = State) ->
-    case maps:get(TaskId, Tasks, undefined) of
-        #task{class=Class, pid=Pid} ->
-            {reply, {ok, Class, Pid}, State};
+handle_call({get_task, Class, TaskId}, _From, #state{tasks=Tasks} = State) ->
+    case maps:get({Class, TaskId}, Tasks, undefined) of
+        Pid when is_pid(Pid) ->
+            {reply, {ok, Pid}, State};
         undefined ->
             {reply, not_found, State}
     end;
 
-handle_call({start, Class, TaskId, Pid}, _From, #state{tasks=Tasks, pids=Pids}=State) ->
-    case maps:is_key(TaskId, Tasks) of
+handle_call({task_started, Class, TaskId, Pid}, From, State) ->
+    #state{tasks=Tasks, pids=Pids} = State,
+    gen_server:reply(From, ok),
+    case maps:is_key({Class, TaskId}, Tasks) of
         true ->
             lager:warning("Started duplicated job '~p' ~s", [Class, TaskId]);
         false ->
             ok
     end,
-    Task = #task{class=Class, pid=Pid, mon=monitor(process, Pid)},
-    Tasks1 = maps:put(TaskId, Task, Tasks),
-    Pids1 = maps:put(Pid, TaskId, Pids),
-    {reply, ok, State#state{tasks=Tasks1, pids=Pids1}};
+    monitor(process, Pid),
+    Tasks1 = maps:put({Class, TaskId}, Pid, Tasks),
+    Pids1 = maps:put(Pid, {Class, TaskId}, Pids),
+    case send_event(Class, {nkcluster, {task_started, TaskId}}) of
+        ok -> 
+            ok;
+        {error, Error} -> 
+            lager:notice("NkCLUSER Jobs could not send event: ~p", [Error])
+    end,
+    {noreply, State#state{tasks=Tasks1, pids=Pids1}};
 
 handle_call(get_state, _From, State) ->
     {reply, State, State};
@@ -231,8 +243,8 @@ handle_call(Msg, _From, State) ->
     {noreply, #state{}}.
 
 handle_cast({updated_status, Status}, #state{tasks=Tasks}=State) ->
-    Data = [{Class, Pid} || #task{class=Class, pid=Pid} <- maps:to_list(Tasks)],
-    spawn(fun() -> send_updated_status(Status, Data) end),
+    Data = [{Class, Pid} || {{Class, _TaskId}, Pid} <- maps:to_list(Tasks)],
+    spawn_link(fun() -> send_updated_status(Status, Data) end),
     {noreply, State};
     
 
@@ -248,15 +260,19 @@ handle_cast(Msg, State) ->
 handle_info({'DOWN', _Ref, process, Pid, Reason}=Msg, State) ->
     #state{tasks=Tasks, pids=Pids} = State,
     case maps:get(Pid, Pids, undefined) of
+        {Class, TaskId} ->
+            Tasks1 = maps:remove({Class, TaskId}, Tasks),
+            Pids1 = maps:remove(Pid, Pids),
+            case send_event(Class, {nkcluster, {task_stopped, TaskId, Reason}}) of
+                ok -> 
+                    ok;
+                {error, Error} -> 
+                    lager:notice("NkCLUSER Jobs could not send event: ~p", [Error])
+            end,
+            {noreply, State#state{tasks=Tasks1, pids=Pids1}};
         undefined ->
             lager:error("Module ~p received unexpected info: ~p", [?MODULE, Msg]),
-            {noreply, State};
-        TaskId ->
-            #task{class=Class} = maps:get(TaskId, Tasks),
-            Tasks1 = maps:remove(TaskId, Tasks),
-            Pids1 = maps:remove(Pid, Pids),
-            send_event(Class, {nkcluster, {task_stopped, TaskId, Reason}}),
-            {noreply, State#state{tasks=Tasks1, pids=Pids1}}
+            {noreply, State}
     end;
     
 handle_info({'EXIT', Pid, _Reason}, #state{pids=Pids}=State) ->
@@ -264,7 +280,7 @@ handle_info({'EXIT', Pid, _Reason}, #state{pids=Pids}=State) ->
         true -> 
             ok;
         false -> 
-            lager:warning("Module ~p received unexpected EXIT: ~p", [?MODULE, Pid])
+            lager:info("Module ~p received unexpected EXIT: ~p", [?MODULE, Pid])
     end,
     {noreply, State};
 
@@ -285,7 +301,7 @@ code_change(_OldVsn, State, _Extra) ->
 -spec terminate(term(), #state{}) ->
     ok.
 
-terminate(_Reason, #state{tasks=_Tasks}) ->
+terminate(_Reason, _State) ->
     ok.
 
 

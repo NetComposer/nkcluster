@@ -1,6 +1,7 @@
 REPO ?= nkcluster
+#RELOADER ?= -s nkreloader
 
-.PHONY: deps release
+.PHONY: deps release dev
 
 all: deps compile
 
@@ -36,23 +37,28 @@ docs:
 
 dev1:
 	erl -config util/dev1.config -args_file util/dev_vm.args \
-		-name dev1@127.0.0.1 -s nkcluster_app # -s nkreloader
+		-name dev1@127.0.0.1 -s nkcluster_app $(RELOADER)
 
 dev2:
 	erl -config util/dev2.config -args_file util/dev_vm.args \
-	    -name dev2@127.0.0.1 -s nkcluster_app # -s nkreloader
+	    -name dev2@127.0.0.1 -s nkcluster_app $(RELOADER)
 
 dev3:
 	erl -config util/dev3.config -args_file util/dev_vm.args \
-	    -name dev3@127.0.0.1 -s nkcluster_app # -s nkreloader
+	    -name dev3@127.0.0.1 -s nkcluster_app $(RELOADER)
 
 dev4:
 	erl -config util/dev4.config -args_file util/dev_vm.args \
-	    -name dev4@127.0.0.1 -s nkcluster_app # -s nkreloader
+	    -name dev4@127.0.0.1 -s nkcluster_app $(RELOADER)
 
 dev5:
 	erl -config util/dev5.config -args_file util/dev_vm.args \
-	    -name dev5@127.0.0.1 -s nkcluster_app # -s nkreloader
+	    -name dev5@127.0.0.1 -s nkcluster_app $(RELOADER)
+
+dev:
+	erl -config test/app.config -args_file test/vm.args \
+	    -s nkcluster_app $(RELOADER)
+
 
 
 APPS = kernel stdlib sasl erts ssl tools os_mon runtime_tools crypto inets \
@@ -79,6 +85,6 @@ cleanplt:
 
 
 build_tests:
-	erlc -pa ebin -pa deps/lager/ebin -o ebin -I include \
+	erlc -pa ebin -pa deps/lager/ebin -o ebin -I include -pa deps/nklib \
 	+export_all +debug_info +"{parse_transform, lager_transform}" \
 	test/*.erl

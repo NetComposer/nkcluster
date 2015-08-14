@@ -37,8 +37,7 @@
     {reply, term()} | {error, term()} | defer.
 
 request(get_status, _From) ->
-    {ok, Status} = nkcluster_agent:get_status(),
-    {reply, Status};
+    {reply, nkcluster_agent:get_status()};
 
 request({set_status, Status}, _From) ->
     case nkcluster_agent:set_status(Status) of
@@ -55,12 +54,22 @@ request({update_meta, Meta}, _From) ->
     nkcluster_app:put(meta, Meta1),
     {reply, Meta1};
 
+request({remove_meta, Keys}, _From) ->
+    OldMeta = nkcluster_app:get(meta),
+    Meta1 = nklib_util:remove_values(Keys, OldMeta),
+    nkcluster_app:put(meta, Meta1),
+    {reply, Meta1};
+
 request({get_data, Key}, _From) ->
     Value = nkcluster_app:get({data, Key}),
     {reply, Value};
 
 request({put_data, Key, Val}, _From) ->
     ok = nkcluster_app:put({data, Key}, Val),
+    {reply, ok};
+
+request({del_data, Key}, _From) ->
+    ok = nkcluster_app:del({data, Key}),
     {reply, ok};
 
 request(get_tasks, _From) ->
@@ -101,12 +110,12 @@ request({load_code, Data}, From) ->
     defer;
 
 request(_, _From) ->
-    {error, unknown_call}.
+    {error, unknown_request}.
 
 
 %% @private
 -spec task(nkcluster:task_id(), term()) ->
-    {ok, pid()} | {error, term()}.
+    {ok, pid()} | {ok, term(), pid()} | {error, term()}.
 
 
 task(_TaskId, {write_file, Path}) ->
@@ -125,7 +134,7 @@ task(_TaskId, {write_file, Path}) ->
     end;
             
 task(_TaskId, _) ->
-    {error, unknown_call}.
+    {error, unknown_task}.
 
 
 %% @private
@@ -137,7 +146,7 @@ command(Pid, {write_file, Data}, From) ->
     defer;
 
 command(_Pid, _Cmd, _From) ->
-    {reply, unknown_cmd}.
+    {reply, unknown_command}.
 
 
 -spec status(pid(), nkcluster:node_status()) ->

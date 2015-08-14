@@ -56,15 +56,13 @@
     }.
 
 
--define(CONNECT_RETRY, 10000).
--define(PING_TIME, 5000).
 -define(MAX_TIME_DIFF, 5000).
 -define(DEF_REQ_TIME, 30000).
 
 -include_lib("nklib/include/nklib.hrl").
 
 -define(CLLOG(Type, Msg, Vars, State), 
-    lager:Type("Node proxy ~s (~s) " Msg, 
+    lager:Type("NkCLUSTER Proxy ~s (~s) " Msg, 
                [State#state.node_id, State#state.conn_id|Vars])).
 
 -define(TIMEOUT, 5*60*1000).
@@ -153,18 +151,18 @@ received_event(Pid, Class, Event) ->
 
 
 %% @doc Start a new process
--spec start(nkdist:proc_id(), Args::term()) ->
+-spec start(nkcluster:node_id(), Args::term()) ->
     {ok, pid()} | {error, term()}.
 
-start({nkcluster, NodeId}, Opts) ->
+start(NodeId, Opts) ->
     start_link(NodeId, Opts).
 
 
 %% @doc Starts a new clone process
--spec start_and_join(nkdist:proc_id(), pid()) ->
+-spec start_and_join(nkcluster:node_id(), pid()) ->
     {ok, pid()} | {error, term()}.
 
-start_and_join({nkcluster, NodeId}, Pid) ->
+start_and_join(NodeId, Pid) ->
     start_link(NodeId, #{clone=>Pid}).
 
 
@@ -193,7 +191,7 @@ join(Pid, OldPid) ->
     node_id :: nkcluster:node_id(),
     conn_id :: binary(),
     conn_pid :: pid(),
-    status = init :: nkcluster:node_status() | init,
+    status = not_connected :: nkcluster:node_status(),
     connected = false :: boolean(),
     listen = [] :: [pid()|nklib:user_uri()],
     meta = [] :: [nklib:token()],
@@ -218,7 +216,7 @@ init({NodeId, #{connect:=Listen0}=Opts}) ->
         node_id = NodeId,
         conn_id = <<"unknown remote">>, 
         listen = Listen, 
-        opts = Opts
+        opts = maps:with([password, tls_opts], Opts)
     },
     ?CLLOG(info, "starting (~p)", [self()], State),
     self() ! connect,
@@ -226,7 +224,6 @@ init({NodeId, #{connect:=Listen0}=Opts}) ->
     {ok, State};
 
 init({NodeId, #{launch:=_Launch}=Opts}) ->
-    lager:info("Node proxy for ~s (~p) launching", [NodeId, self()]),
     State = #state{
         node_id = NodeId, 
         conn_id = <<"unknown remote">>, 
@@ -403,7 +400,7 @@ handle_cast({pong, {reply, {LocTime, RemTime}}}, #state{connected=true}=State) -
 
 handle_cast({pong, {error, Error}}, #state{connected=true, conn_pid=ConnPid}=State) ->
     ?CLLOG(notice, "ping failed: ~p", [Error], State),
-    nkpacket_connection:stop(ConnPid),
+    nkcluster_protocol:stop(ConnPid),
     {noreply, update_status(not_connected, false, State)};
 
 handle_cast({new_connection, Pid}, State) ->
@@ -457,8 +454,8 @@ handle_info({req_timeout, TransId}, State) ->
 handle_info(send_ping, #state{connected=true}=State) ->
     Now = nklib_util:l_timestamp(),
     Cmd = {req, nkcluster, {ping, Now}},
-    Timeout = ?PING_TIME * 75 div 100,
-    % lager:error("SEND PING: ~p", [Timeout]),
+    Ping = ping_time(),
+    Timeout = Ping * 75 div 100,
     State2 = case send_rpc(Cmd, #{timeout=>Timeout}, ping, State) of
         {ok, State1} -> 
             State1;
@@ -466,11 +463,11 @@ handle_info(send_ping, #state{connected=true}=State) ->
             ?CLLOG(notice, "ping send error", [], State1),
             State1
     end,
-    erlang:send_after(?PING_TIME, self(), send_ping),
+    erlang:send_after(Ping, self(), send_ping),
     {noreply, State2};
 
 handle_info(send_ping, State) ->
-    erlang:send_after(?PING_TIME, self(), send_ping),
+    erlang:send_after(ping_time(), self(), send_ping),
     {noreply, State};
 
 handle_info(Info, State) -> 
@@ -508,7 +505,7 @@ connect(#state{listen=[]}=State) ->
     {stop, normal, State};
 
 connect(#state{node_id=NodeId, listen=Listen, opts=Opts}=State) ->
-    State1 = update_status(connecting, false, State),
+    State1 = update_status(not_connected, false, State),
     case do_connect(Listen, self(), Opts) of
         {ok, ConnPid, NodeId, Info} ->
             MyListen = nkcluster_app:get(listen),
@@ -518,9 +515,8 @@ connect(#state{node_id=NodeId, listen=Listen, opts=Opts}=State) ->
                     case node(ConnPid)/=node() andalso Listen1/=[] of
                         true ->
                             ?CLLOG(info, "changing connection to local", [], State),
-                            nkpacket_connection:stop(ConnPid),
-                            connect(State1
-                                #state{listen=Listen1});
+                            nkcluster_protocol:stop(ConnPid),
+                            connect(State1#state{listen=Listen1});
                         false ->
                             monitor(process, ConnPid),
                             #{status:=NodeStatus, remote:=ConnId} = Info,
@@ -539,7 +535,7 @@ connect(#state{node_id=NodeId, listen=Listen, opts=Opts}=State) ->
                     connect_error(State1)
             end;
         {ok, _ConnPid, _OtherNodeId, _Info} ->
-            lager:warning("Connected to node with different NodeId!"),
+            lager:warning("NkCLUSTER Proxy connected to node with different NodeId!"),
             {stop, normal, State};
         error ->
             connect_error(State1)
@@ -554,7 +550,8 @@ connect_error(#state{conn_pid=ConnPid}=State) ->
         false ->
             ok
     end,
-    erlang:send_after(?CONNECT_RETRY, self(), connect),
+    Time = nkcluster_app:get(proxy_connect_retry),
+    erlang:send_after(Time, self(), connect),
     {noreply, update_status(not_connected, false, State)}.
 
 
@@ -565,7 +562,10 @@ update_status(Status, Connected, State) ->
         status = OldStatus, 
         listen = Listen, 
         meta = Meta,
-        classes = Classes
+        classes = Classes,
+        latencies = Latencies,
+        conn_id = Remote,
+        conn_pid = ConnPid
     } = State,
     case OldStatus==Status of
         true -> 
@@ -578,7 +578,10 @@ update_status(Status, Connected, State) ->
                     Update = #{
                         status => Status,
                         meta => Meta, 
-                        listen => Listen
+                        listen => Listen,
+                        latencies => Latencies,
+                        remote => Remote,
+                        conn_pid => ConnPid
                     },
                     nkcluster_nodes:control_update(NodeId, self(), Update),
                     send_event(Classes, {nkcluster, {node_status, Status}}, State),
@@ -640,31 +643,32 @@ do_connect([ConnPid|Rest], Host, Opts) when is_pid(ConnPid) ->
         {ok, NodeId, Info} ->
             % Probably the agent has started this connection
             nkcluster_protocol:take_control(ConnPid, Host),
-            lager:info("Node proxy connected to ~p", [ConnPid]),
+            lager:info("NkCLUSTER Proxy connected to ~p", [ConnPid]),
             {ok, ConnPid, NodeId, Info};
         {error, Error} ->
-            lager:info("Node error connecting to ~p: ~p", [ConnPid, Error]),
+            lager:info("NkCLUSTER Proxy error connecting to ~p: ~p", [ConnPid, Error]),
             do_connect(Rest, Host, Opts)
     end;
 
 do_connect([ConnUri|Rest], Host, Opts) ->
-    Opts1 = Opts#{idle_timeout => 3*?PING_TIME},
-    ConnOpts = nkcluster_agent:connect_opts({control, Host}, Host, Opts1),
-    case nkpacket:connect(ConnUri, ConnOpts) of
+    ConnOpts1 = nkcluster_agent:connect_opts({control, Host}, Host, Opts),
+    IdleTimeout = maps:get(idle_timeout, Opts, 3*ping_time()),
+    ConnOpts2 = ConnOpts1#{idle_timeout => IdleTimeout},
+    case nkpacket:connect(ConnUri, ConnOpts2) of
         {ok, ConnPid} ->
             case nkcluster_protocol:wait_auth(ConnPid) of
                 {ok, NodeId, Info} ->
                     ConnId = nklib_util:to_binary(ConnUri),
-                    lager:info("Node proxy connected to ~s", [ConnId]),
+                    lager:info("NkCLUSTER Proxy connected to ~s", [ConnId]),
                     {ok, ConnPid, NodeId, Info};
                 {error, Error} ->
                     ConnId = nklib_util:to_binary(ConnUri),
-                    lager:info("Node error connecting to ~s: ~p", [ConnId, Error]),
+                    lager:info("NkCLUSTER Proxy error connecting to ~s: ~p", [ConnId, Error]),
                     do_connect(Rest, Host, Opts)
             end;
         {error, Error} ->
             ConnId = nklib_util:to_binary(ConnUri),
-            lager:info("Node error connecting to ~s: ~p", [ConnId, Error]),
+            lager:info("NkCLUSTER Proxy error connecting to ~s: ~p", [ConnId, Error]),
             do_connect(Rest, Host, Opts)
     end.
 
@@ -693,4 +697,7 @@ do_call(Pid, Msg, Timeout) ->
         Other -> Other
     end.
 
+
+%% @private
+ping_time() -> nkcluster_app:get(ping_time).
 

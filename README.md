@@ -143,7 +143,7 @@ NkCLUSER will try to resolve `cluster.example.com`, taking all IPs from there an
 
 * [_Round-robin DNS_](https://en.wikipedia.org/wiki/Round-robin_DNS). Each time NkCLUSTER must resolve an IP address, if it returns multiple `A` records, it will randomize the list.
 
-The receiving control node will accept the connection, and both parties will authenticate each other, sending a challenge (the node _UUID_, a random string auto-generated at boot) that must be _signed_ using the local password, with [PBKDF2](https://en.wikipedia.org/wiki/PBKDF2) protocol. If everything is ok, the control node will select the _right_ node to host the node proxy process and it will start it there.
+The receiving control node will accept the connection, and both parties will authenticate each other, sending a challenge (the node _UUID_, a random string auto-generated at boot) that must be _signed_ using the local password, with [PBKDF2](https://en.wikipedia.org/wiki/PBKDF2) protocol. If everything is ok, the control node will select the _right_ node to host the node proxy process and it will start it there. If the selected node is different, the node proxy will try to start a direct connection to the worker, if possible.
 
 Using this node proxy process, you can send requests and start tasks at the worker node. Worker nodes will also send periodic information about its state (status, cpu, memory, etc.). If the connection fails, the control process will try to set it up again. Worker nodes will also try to connect again by themselves if no control node contacts them in a while. In some cases (like a network split) a single worker node could be _connected_ to several proxy processes at different nodes, but this should be a temporary situation, resolved once the cluster converges again.
 
@@ -185,7 +185,7 @@ Once defined your _job_class_ module, you can send requests, start tasks and sen
 
 You can send requests calling `nkcluster:request/3,4`. The callback `request/2` will be called at the remote (worker) side, and your call will block until a response is sent back. You can define a _timeout_, and also ask NkCLUSTER to start a new, exclusive connection to the worker if possible. If the connection or the node fails, an error will be returned. If you are not asking for a new, exclusive connection, you request processing time must be very short (< 100 msecs). Otherwise, the periodic ping will be delayed and the connection may be dropped.
 
-For long-running jobs, you must start a new task, calling `nkcluster:task/3,4`. The callback `task/2` will be called at the remote side, and it must start a new Erlang process and return its `pid()` and, optionally, a reply. A _job_id_ is returned to the caller, along with the reply if sent. You can send mesages to any started task calling `nkcluster_jobs:command/3,4`.
+For long-running jobs, you must start a new task, calling `nkcluster:task/3,4`. The callback `task/2` will be called at the remote side, and it must start a new Erlang process and return its `pid()` and, optionally, a reply. A _job_id_ is returned to the caller, along with the reply if sent. You can send mesages to any started task calling `nkcluster_jobs:command/4,5`.
 
 The started task can send _events_ back to the control node at any moment, calling `nkcluster_jobs:send_event/2`. The event will arrive at the control node, and the callback `event/2` will be called for the corresponding job class. NkCLUSTER will also send some automatic events:
 
