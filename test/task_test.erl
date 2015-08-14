@@ -90,8 +90,8 @@ req1(NodeId) ->
 	ok = nkcluster:send_file(NodeId, "/tmp/nkcluster.1", "/tmp/nkcluster.2"),
 	{ok, Bin2} = file:read_file("/tmp/nkcluster.1"),
 
-	ok = nkcluster:load_module(NodeId, ?MODULE),
-	ok = nkcluster:load_modules(NodeId, nkcluster),
+	% ok = nkcluster:load_module(NodeId, ?MODULE),
+	% ok = nkcluster:load_modules(NodeId, nkcluster),
 
 	ok.
 
