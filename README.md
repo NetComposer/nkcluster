@@ -41,7 +41,7 @@ git clone https://github.com/Nekso/nkcluster.git
 make
 ```
 
-Then, you can start five different consoles, and start five nodes, one at each: `make dev1`, `make dev2`, `make dev3`, `make dev3` and `make dev5`.
+Then, you can start five different consoles, and start five nodes, one at each: `make dev1`, `make dev2`, `make dev3`, `make dev4` and `make dev5`.
 
 Nodes 1, 2 and 3 are control/worker nodes. Nodes 4 and 5 are worker nodes. The cluster should discover everything automatically, but you must deploy the cluster plan. At any node of 1, 2 or 3:
 
