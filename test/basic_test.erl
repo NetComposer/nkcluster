@@ -84,7 +84,7 @@ connect() ->
 	% We must include a cacertfile to verify
 	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15002;transport=tls", 
 													  #{tls_opts=>#{verify=>true}}),
-	{error, {invalid_key, tls_verify}} = nkcluster_agent:connect(
+	{error, {syntax_error, <<"tls_verify">>}} = nkcluster_agent:connect(
 		"nkcluster://localhost:15002;transport=tls;tls_verify=hi", #{}),
 	{error, no_connections} = nkcluster_agent:connect(
 		"nkcluster://localhost:15002;transport=tls;tls_verify=true", #{}),
