@@ -31,6 +31,9 @@ eunit:
 shell:
 	erl -config util/shell_app.config -args_file util/shell_vm.args -s nkcluster_app
 
+shell-test:
+	erl -config test/app.config -args_file test/vm.args -s nkcluster_app
+
 docs:
 	./rebar skip_deps=true doc
 
