@@ -23,7 +23,7 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(application).
 
--export([start/0, start/2, stop/1]).
+-export([start/0, start/1, start/2, stop/1]).
 -export([get/1, put/2, del/1]).
 
 -include("nkcluster.hrl").
@@ -37,16 +37,26 @@
 %% Private
 %% ===================================================================
 
-%% @doc Starts stand alone.
+%% @doc Starts NkCLUSTER stand alone.
 -spec start() -> 
     ok | {error, Reason::term()}.
 
 start() ->
-    case nklib_util:ensure_all_started(?APP, temporary) of
-        {ok, _Started} -> ok;
-        {error, Error} -> {error, Error}
-    end.
+    start(temporary).
 
+
+%% @doc Starts NkCLUSTER stand alone.
+-spec start(permanent|transient|temporary) -> 
+    ok | {error, Reason::term()}.
+
+start(Type) ->
+    nkdist_util:ensure_dir(),
+    case nklib_util:ensure_all_started(?APP, Type) of
+        {ok, _Started} ->
+            ok;
+        Error ->
+            Error
+    end.
 
 %% @private OTP standard start callback
 start(_Type, _Args) ->
