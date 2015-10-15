@@ -60,7 +60,7 @@ start(Type) ->
 
 %% @private OTP standard start callback
 start(_Type, _Args) ->
-    ConfigSpec = #{
+    Syntax = #{
         cluster_name => binary,
         cluster_addr => uris,
         password => binary,
@@ -89,8 +89,8 @@ start(_Type, _Args) ->
         {staged_joins, false},
         {pbkdf2_iters, 20000}
     ],
-    case nklib_config:load_env(?APP, ?APP, Defaults, ConfigSpec) of
-        ok ->
+    case nklib_config:load_env(?APP, ?APP, Syntax, Defaults) of
+        {ok, _} ->
             nkpacket_config:register_protocol(nkcluster, nkcluster_protocol),
             check_uris(get(cluster_addr)),
             check_uris(get(listen)),
