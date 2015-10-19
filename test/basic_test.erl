@@ -149,8 +149,8 @@ proxy() ->
 	% Now we kill the connection. The proxy should reconnect inmediatly
 	% Register our class for notifications
 	ok = nklib_config:put(nkcluster_test, pid, self()),
-	{module, _} = code:ensure_loaded(test_jobs),
-	nkcluster_jobs:send_event(test_jobs, hi),
+	{module, _} = code:ensure_loaded(test_job_class),
+	nkcluster_jobs:send_event(test_job_class, hi),
 	hi = ?EVENT(NodeId),
 	[{_, ConnPid}] = nklib_proc:values(nkcluster_worker_master),
 	exit(ConnPid, kill),
