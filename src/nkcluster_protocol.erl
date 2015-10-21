@@ -660,7 +660,7 @@ make_auth_hash(Salt, NkPort, #state{password=Pass}) ->
         undefined -> nkcluster_app:get(password);
         _ -> Pass
     end,
-    {ok, {Transp, _, _}} = nkpacket:get_local(NkPort),
+    {ok, {_Proto, Transp, _, _}} = nkpacket:get_local(NkPort),
     case Transp==tls orelse Transp==wss of
         true ->
             Pass2;
@@ -701,7 +701,7 @@ get_remote(NkPort, State) ->
 
 %% @private
 get_remote_id(NkPort) ->
-    {ok, {Transp, Ip, Port}} = nkpacket:get_remote(NkPort),
+    {ok, {_, Transp, Ip, Port}} = nkpacket:get_remote(NkPort),
     nklib_util:bjoin([Transp, nklib_util:to_host(Ip), Port], <<":">>).
 
 
