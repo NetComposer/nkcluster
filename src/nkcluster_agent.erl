@@ -465,7 +465,7 @@ set_updated_status(Status, From, State) ->
 connect_opts(Type, Host, Opts) ->
     UserOpts = maps:with([password], Opts),
     Opts#{
-        group => nkcluster,
+        srv_id => nkcluster,
         valid_schemes => [nkcluster],
         monitor => Host,
         idle_timeout => 15000,

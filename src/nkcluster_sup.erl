@@ -34,7 +34,7 @@
 
 start_link() ->
     ListenOpts = #{
-        group => nkcluster,
+        srv_id => nkcluster,
         idle_timeout => 180000,
         tcp_packet => 4,
         ws_proto => nkcluster,
