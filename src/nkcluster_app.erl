@@ -82,16 +82,16 @@ start(_Type, _Args) ->
         {meta, ""},
         {is_control, true},
         {listen, "nkcluster://all;transport=tls"},
-        {tls_opts, nkpacket_config:tls_opts()},
+        {tls_opts, nkpacket_syntax:tls_opts()},
         {ping_time, 5000},
         {proxy_connect_retry, 10000},
         {stats_time, 10000},
         {staged_joins, false},
         {pbkdf2_iters, 20000}
     ],
-    case nklib_config:load_env(?APP, ?APP, Syntax, Defaults) of
+    case nklib_config:load_env(?APP, Syntax, Defaults) of
         {ok, _} ->
-            nkpacket_config:register_protocol(nkcluster, nkcluster_protocol),
+            nkpacket:register_protocol(nkcluster, nkcluster_protocol),
             check_uris(get(cluster_addr)),
             check_uris(get(listen)),
             %% It is NOT recommended that you fix the NodeId!
