@@ -300,7 +300,7 @@ conn_parse(Data, NkPort, #state{auth=false}=State) ->
 conn_parse(Data, NkPort, #state{auth=true, type=worker}=State) ->
     case catch binary_to_term(Data) of
         {set_master, Uris} ->
-            ok = nkcluster_agent:update_cluster_addr(true, Uris, #{}),
+            ok = nkcluster_agent:update_cluster_addr(true, Uris),
             State1 = case State#state.worker_master of
                 true -> 
                     State;

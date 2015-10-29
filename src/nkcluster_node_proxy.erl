@@ -32,6 +32,8 @@
          handle_cast/2, handle_info/2]).
 -export_type([conn_spec/0, start_opts/0, rpc_opts/0]).
 
+-include_lib("nkpacket/include/nkpacket.hrl").
+
 
 -type conn_spec() ::
     pid()|nklib:user_uri()|[pid()|nklib:user_uri()].
@@ -40,8 +42,8 @@
     #{
         connect => conn_spec(),
         password => binary(),
-        tls_opts => nkpacket:tls_opts(),
-        launch => launch_opts()
+        launch => launch_opts(),
+        ?TLS_TYPES
     }.
 
 -type launch_opts() ::

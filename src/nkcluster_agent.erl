@@ -35,18 +35,21 @@
 -behaviour(gen_server).
 
 -export([node_id/0, is_control/0]).
--export([get_status/0, set_status/1, update_cluster_addr/3, connect/2]).
+-export([get_status/0, set_status/1, update_cluster_addr/2, connect/2]).
 -export([connect_opts/3, ping_all_nodes/0, connect_nodes/1, pong/0]).
 -export([clear_cluster_addr/0]).
 -export([start_link/0, init/1, terminate/2, code_change/3, handle_call/3,   
             handle_cast/2, handle_info/2]).
 
 -include_lib("nklib/include/nklib.hrl").
+-include_lib("nkpacket/include/nkpacket.hrl").
+
+
 
 -type connect_opts() ::
     #{
         password => binary(),
-        tls_opts => nkpacket:tls_opts()
+        ?TLS_TYPES
     }.
 
 
@@ -89,11 +92,11 @@ set_status(Status) when Status==ready; Status==standby; Status==stopped ->
 
 
 %% @doc Update the announce list
--spec update_cluster_addr(boolean(), [nklib:user_uri()], connect_opts()) ->
+-spec update_cluster_addr(boolean(), [nklib:user_uri()]) ->
     ok | {error, term()}.
 
-update_cluster_addr(Preferred, ClusterAddr, Opts) ->
-    case nkpacket:multi_resolve(ClusterAddr, Opts#{valid_schemes=>[nkcluster]}) of
+update_cluster_addr(Preferred, ClusterAddr) ->
+    case nkpacket:multi_resolve(ClusterAddr, #{valid_schemes=>[nkcluster]}) of
         {ok, Conns} ->
             gen_server:cast(?MODULE, {update_addrs, Preferred, Conns});
         {error, Error} ->
@@ -213,7 +216,7 @@ start_link() ->
     {ok, #state{}}.
 
 init([]) ->
-    ok = update_cluster_addr(false, nkcluster_app:get(cluster_addr), #{}),
+    ok = update_cluster_addr(false, nkcluster_app:get(cluster_addr)),
     OsType = case os:type() of
         {unix, Type} -> Type;
         _ -> unknown
@@ -464,14 +467,15 @@ set_updated_status(Status, From, State) ->
 
 connect_opts(Type, Host, Opts) ->
     UserOpts = maps:with([password], Opts),
-    Opts#{
+    TLSKeys = nkpacket_util:tls_keys(),
+    TLSOpts = maps:with(TLSKeys, Opts),
+    TLSOpts#{
         srv_id => nkcluster,
         valid_schemes => [nkcluster],
         monitor => Host,
         idle_timeout => 15000,
         ws_proto => nkcluster,
         tcp_packet => 4,
-        tls_opts => maps:get(tls_opts, Opts, nkcluster_app:get(tls_opts)),
         user => maps:merge(#{type=>Type}, UserOpts)
     }.
 

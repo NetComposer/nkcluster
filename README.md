@@ -18,9 +18,14 @@ Standard Erlang clusters are very convenient and easy to use, but they have some
 * Adding and removing nodes does not redistribute the load on the nodes.
 * In practical terms, all nodes must usually belong to the same LAN.
 
-NkCLUSTER allows the creation of clusters with a very large number of nodes. It uses a _hybrid_ approach. While all nodes in the cluster are _worker_ nodes and run the same Erlang application (_nkcluster_), some of them take also a _control_ role, creating a _riak_core_ cluster among them. In other words, there are two types of nodes: _control nodes_ (which are actually control+worker nodes) and _worker nodes_. Control nodes manage worker nodes (including themselves, since they are also worker nodes) and send jobs to them. The set of all control nodes is called the _control cluster_, a subset of the whole cluster.
+NkCLUSTER allows the creation of clusters with a very large number of nodes. It uses a _hybrid_ approach. Any node in the cluster can have two different roles:
 
-Control nodes talk among them using standard Erlang distribution protocol. From the NkCLUSTER point of view, worker nodes talk only with their _node proxy_, placed at some control node, using TCP, TLS, SCTP, WS or WSS transports (they can of course talk with other worker nodes or whatever they want to using other means) . NkCLUSTER is designed to allow worker nodes to be deployed at WAN distances from control nodes (for example, at different cloud providers). They can be very _firewall-friendly_, for example using _websockets_ transports on port 80 or 443, and in some circumstances, without any opened incoming port. However, all control nodes should still belong to the same LAN.
+* _Control_ role: They receive, share and process requests from the network, and manage and send jobs to nodes with 'worker' role.
+* _Worker_ role: They receive job requests from any node with _control_ role and execute them, and can also receive specialized network traffic to process. They can have also special jobs like being a network router or a disk server.
+
+ All of the nodes of the cluster run the same Erlang application (_nkcluster_), but the first 'N' nodes in the cluster are _primary_ nodes (they have _control_ and _worker_ roles), and the rest of the nodes are _secondary_ nodes (they only have the _worker_ role). N must be power of two, typically 16, 32, 64 or 128. Primary nodes create a _riak_core_ cluster among them. The set of all primary nodes is called the primary cluster, a subset of the whole cluster.
+
+Full nodes talk among them using standard Erlang distribution protocol. From the NkCLUSTER point of view, worker nodes talk only with their _node proxy_, placed at some control node, using TCP, TLS, SCTP, WS or WSS transports (they can of course talk with other worker nodes or whatever they want to using other means) . NkCLUSTER is designed to allow worker nodes to be deployed at WAN distances from control nodes (for example, at different cloud providers). They can be very _firewall-friendly_, for example using _websockets_ transports on port 80 or 443, and in some circumstances, without any opened incoming port. However, all control nodes should still belong to the same LAN.
 
 NkCLUSTER uses the concepts of _requests_, _tasks_, _events_ and _job classes_. For each worker node, a _node proxy_ process is started at some specific control node, and can be used to send requests and tasks to its managed worker node. Requests are short-lived RPC calls. Tasks are long-living Erlang processes running at a worker node and managed from a control process at a control node. Events are pieces of information sent from a worker node to its node proxy. All of them must belong to a previously defined [_job_class_](src/nkcluster_job_class.erl).
 
@@ -250,4 +255,9 @@ password|`string()|binary()`|`"nkcluster"`|Password to use when connecting to or
 meta|`string()|binary()`|`""`|Metadata for this node (i.e. `"class;data=1, location;dc=here"`)
 is_control|`boolean()`|`true`|If this node has the `control` role
 listen|`nklib:user_uri()`|`"nkcluster://all;transport=tls`|List of addresses, ports and transports to listen on (see above)
-tls_opts|`nkpacket:tls_opts()`|Default options to use for TLS connections
+tls_certfile|`string()`|-|Custom certificate file
+tls_keyfile|`string()`|-|Custom key file
+tls_cacertfile|`string()`|-|Custom CA certificate file
+tls_password|`string()`|-|Password fort the certificate
+tls_verify|`boolean()`|false|If we must check certificate
+tls_depth|`integer()`|0|TLS check depth

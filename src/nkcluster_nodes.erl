@@ -128,8 +128,7 @@ new_connection(NodeId) ->
 
 
 %% @doc Manually connect to a remote worker, without knowing the NodeId
--spec connect(nklib:user_uri(), 
-              #{password=>binary(), tls_opts => nkpacket:tls_opts()}) ->
+-spec connect(nklib:user_uri(), nkcluster_agent:connect_opts()) ->
     {ok, nkcluster:node_id(), map(), pid()} | {error, term()}.
 
 connect(Uri, Opts) when is_map(Opts) ->
