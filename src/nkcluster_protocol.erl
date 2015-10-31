@@ -162,7 +162,7 @@ get_all() ->
     ].
 
 
-%% @doc Gets all started connections
+%% @doc Gets all worker started connections to primary nodes
 -spec get_all_worker() ->
     [pid()].
 
@@ -310,7 +310,7 @@ conn_parse(Data, NkPort, #state{auth=true, type=worker}=State) ->
             end,
             {ok, State1};
         {rpc, TransId, {req, nkcluster, {ping, Time}}} ->
-            nkcluster_agent:pong(),
+            nkcluster_agent:received_ping(),
             Reply = {reply, {Time, nklib_util:l_timestamp()}},
             ret_send({rep, TransId, Reply}, NkPort, State);
         {rpc, TransId, Rpc} ->
@@ -319,7 +319,7 @@ conn_parse(Data, NkPort, #state{auth=true, type=worker}=State) ->
                 Reply -> ret_send({rep, TransId, Reply}, NkPort, State)
             end;
         Other ->
-            lager:warning("NkCLUSTER node worker received unexpected object, "
+            lager:warning("NkCLUSTER Worker received unexpected object, "
                           "closing: ~p", [Other]),
             {stop, normal, State}
     end;
@@ -335,7 +335,7 @@ conn_parse(Data, _NkPort, #state{auth=true, type=control}=State) ->
         {ev, Class, Event} ->
             process_event(Class, Event, State);
         Other ->
-            lager:warning("NkCLUSTER node control received unexpected object, "
+            lager:warning("NkCLUSTER Control received unexpected object, "
                           "closing: ~p", [Other]),
             {stop, normal, State}
     end.
@@ -506,8 +506,8 @@ process_auth(#{stage:=2, id:=ListenId, vsn:=Vsn, hash:=Hash}, NkPort, State) ->
                 listen => nkcluster_app:get(listen),
                 meta => nkcluster_app:get(meta)
             },
-            Stage3 = case nkcluster_agent:is_control() of
-                true -> Base3#{nodes=>riak_core_node_watcher:nodes(nkdist)};
+            Stage3 = case nkcluster_agent:is_primary() of
+                true -> Base3#{primary_nodes=>riak_core_node_watcher:nodes(nkdist)};
                 false -> Base3
             end,
             ret_send({auth, Stage3}, NkPort, State1); 
@@ -530,14 +530,14 @@ process_auth(#{stage:=3, listen:=Listen, meta:=Meta, hash:=Hash}=Msg, NkPort, St
                 auth = true
             },
             register(State1),
-            connect_nodes(Msg),
+            join_nodes(Msg),
             Base4 = #{
                 stage => 4,
                 listen => nkcluster_app:get(listen),
                 meta => nkcluster_app:get(meta)
             },
-            Stage4 = case nkcluster_agent:is_control() of
-                true -> Base4#{nodes=>riak_core_node_watcher:nodes(nkdist)};
+            Stage4 = case nkcluster_agent:is_primary() of
+                true -> Base4#{primary_nodes=>riak_core_node_watcher:nodes(nkdist)};
                 false -> Base4
             end,
             ret_send({auth, Stage4}, NkPort, State1);
@@ -552,8 +552,8 @@ process_auth(#{stage:=4, listen:=Listen, meta:=Meta}=Msg, NkPort, State) ->
         remote_meta = Meta
     },
     #state{type=Type} = State,
-    lager:info("NkCLUSTER node ~p connected to ~s", [Type, get_remote_id(NkPort)]),
-    connect_nodes(Msg),
+    lager:info("NkCLUSTER node (~p) connected to ~s", [Type, get_remote_id(NkPort)]),
+    join_nodes(Msg),
     register(State2),
     #state{auth_froms=AuthFroms} = State,
     lists:foreach(
@@ -706,9 +706,9 @@ get_remote_id(NkPort) ->
 
 
 %% @private
-connect_nodes(#{nodes:=Nodes}) ->
-    nkcluster_agent:connect_nodes(Nodes);
-connect_nodes(_) ->
+join_nodes(#{primary_nodes:=Nodes}) ->
+    nkcluster_agent:join_nodes(Nodes);
+join_nodes(_) ->
     ok.
 
 

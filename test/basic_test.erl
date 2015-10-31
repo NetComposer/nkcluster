@@ -29,48 +29,49 @@
 
 -define(EVENT(NodeId), event(NodeId, ?LINE)).
 
-basic_test_() ->
-  	{setup, 
-    	fun() -> 
-    		ok = nkcluster_app:start()
-		end,
-		fun(_) -> 
-			ok 
-		end,
-	    fun(_) ->
-		    [
-				fun() -> connect() end,
-				{timeout, 10000, fun() -> proxy() end}
-			]
-		end
-  	}.
+% basic_test_() ->
+%   	{setup, 
+%     	fun() -> 
+%     		ok = nkcluster_app:start()
+% 		end,
+% 		fun(_) -> 
+% 			ok 
+% 		end,
+% 	    fun(_) ->
+% 		    [
+% 				fun() -> connect() end,
+% 				{timeout, 10000, fun() -> proxy() end}
+% 			]
+% 		end
+%   	}.
 
 
 
 
 connect() ->
 	?debugMsg("Starting CONNECT test"),
-	true = nkcluster_agent:is_control(),
+	true = nkcluster_agent:is_primary(),
 	ready = nkcluster_agent:get_status(),
 	NodeId = nkcluster_agent:node_id(),
 	{ok, []} = nkdist:get_procs(),
-	{error, {invalid_scheme, http}} = nkcluster_agent:connect("http://localhost", #{}),
-	{error, {invalid_transport, udp}} = nkcluster_agent:connect("nkcluster://localhost;transport=udp", #{}),
+	% {error, {invalid_scheme, http}} = nkcluster_agent:connect("http://localhost", #{}),
+	% {error, {invalid_transport, udp}} = nkcluster_agent:connect("nkcluster://localhost;transport=udp", #{}),
 
-	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost", #{}),
+	% {error, no_connections} = nkcluster_agent:connect("nkcluster://localhost", #{}),
 
-	% We start a raw connection, with a 15secs timeout, no announce is sent
-	{ok, NodeId, Info} = 
-		nkcluster_agent:connect("nkcluster://localhost, nkcluster://localhost:15001", #{}),
-	#{
-		conn_pid:=ConnPid1, listen:=[#uri{}, #uri{}, #uri{}, #uri{}], meta:=[{<<"test1">>, []}],
-		remote:=<<"tcp:127.0.0.1:15001">>, status:=ready
-	} = Info,
-	nkcluster_protocol:stop(ConnPid1),
+	% % We start a raw connection, no announce is sent
+	% % We use the local stored password
+	% {ok, NodeId, Info} = 
+	% 	nkcluster_agent:connect("nkcluster://localhost, nkcluster://localhost:15001", #{}),
+	% #{
+	% 	conn_pid:=ConnPid1, listen:=[#uri{}, #uri{}, #uri{}, #uri{}], meta:=[{<<"test1">>, []}],
+	% 	remote:=<<"tcp:127.0.0.1:15001">>, status:=ready
+	% } = Info,
+	% nkcluster_protocol:stop(ConnPid1),
 
-	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15001", #{password=><<"bad">>}),
-	{ok, NodeId, Info2} = nkcluster_agent:connect("nkcluster://localhost:15001", #{password=><<"testpass">>}),
-	nkcluster_protocol:stop(maps:get(conn_pid, Info2)),
+	% {error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15001", #{password=><<"bad">>}),
+	% {ok, NodeId, Info2} = nkcluster_agent:connect("nkcluster://localhost:15001", #{password=><<"testpass">>}),
+	% nkcluster_protocol:stop(maps:get(conn_pid, Info2)),
 
 	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15001;password=bad", #{}),
 	{ok, NodeId, Info3} = nkcluster_agent:connect(
@@ -82,8 +83,7 @@ connect() ->
 	nkcluster_protocol:stop(maps:get(conn_pid, Info4)),
 
 	% We must include a cacertfile to verify
-	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15002;transport=tls", 
-													  #{tls_opts=>#{verify=>true}}),
+	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15002;transport=tls", 											  #{tls_verify=>true}),
 	{error, {syntax_error, <<"tls_verify">>}} = nkcluster_agent:connect(
 		"nkcluster://localhost:15002;transport=tls;tls_verify=hi", #{}),
 	{error, no_connections} = nkcluster_agent:connect(

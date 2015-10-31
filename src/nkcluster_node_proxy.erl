@@ -153,7 +153,7 @@ received_event(Pid, Class, Event) ->
 
 
 %% @doc Start a new process
--spec start(nkcluster:node_id(), Args::term()) ->
+-spec start(nkcluster:node_id(), start_opts()) ->
     {ok, pid()} | {error, term()}.
 
 start(NodeId, Opts) ->
@@ -193,9 +193,9 @@ join(Pid, OldPid) ->
     node_id :: nkcluster:node_id(),
     conn_id :: binary(),
     conn_pid :: pid(),
+    connect = [] :: [pid()|nklib:user_uri()],
     status = not_connected :: nkcluster:node_status(),
     connected = false :: boolean(),
-    listen = [] :: [pid()|nklib:user_uri()],
     meta = [] :: [nklib:token()],
     latencies = [] :: [integer()],
     rpcs = #{} :: #{nkcluster_protocol:trans_id() => #req{}},
@@ -208,17 +208,18 @@ join(Pid, OldPid) ->
 -spec init(term()) ->
     {ok, #state{}}.
 
-init({NodeId, #{connect:=Listen0}=Opts}) ->
-    Listen = case is_list(Listen0) of
-        false -> [Listen0];
-        true when is_integer(hd(Listen0)) -> [Listen0];
-        true -> Listen0
+init({NodeId, #{connect:=Connect0}=Opts}) ->
+    Connect = case is_list(Connect0) of
+        false -> [Connect0];
+        true when is_integer(hd(Connect0)) -> [Connect0];
+        true -> Connect0
     end,
+    TLSKeys = nkpacket_util:tls_keys(),
     State = #state{
         node_id = NodeId,
         conn_id = <<"unknown remote">>, 
-        listen = Listen, 
-        opts = maps:with([password, tls_opts], Opts)
+        connect = Connect, 
+        opts = maps:with([password|TLSKeys], Opts)
     },
     ?CLLOG(info, "starting (~p)", [self()], State),
     self() ! connect,
@@ -240,7 +241,7 @@ init({NodeId, #{clone:=Pid}}) ->
         {ok, Data} ->
             #{
                 node_id := NodeId,
-                listen := Listen,
+                connect := Connect,
                 meta := Meta,
                 classes := Classes,
                 opts := Opts
@@ -248,7 +249,7 @@ init({NodeId, #{clone:=Pid}}) ->
             State = #state{
                 node_id = NodeId,
                 conn_id = <<"unknown remote">>,
-                listen = Listen,
+                connect = Connect,
                 meta = Meta,
                 classes = Classes,
                 opts = Opts
@@ -267,12 +268,12 @@ init({NodeId, #{clone:=Pid}}) ->
     {noreply, #state{}} | {reply, term(), #state{}}.
 
 handle_call(new_connection, From, #state{connected=true}=State) ->
-    #state{listen=Listen, conn_pid=ConnPid} = State,
-    Opts = #{idle_timeout=>5000},
+    #state{connect=Connect, conn_pid=ConnPid, opts=Opts} = State,
     Self = self(),
+    Opts1 = Opts#{idle_timeout=>5000},
     spawn_link(
         fun() -> 
-            Reply = case do_connect(Listen, Self, Opts) of
+            Reply = case do_connect(Connect, Self, Opts1) of
                 {ok, NewConnPid, _NodeId, _Info} -> 
                     gen_server:cast(Self, {new_connection, NewConnPid}),
                     {ok, NewConnPid};
@@ -290,7 +291,7 @@ handle_call(get_info, _From, State) ->
     #state{
         node_id = NodeId,
         conn_id = ConnId,
-        listen = Listen,
+        connect = Connect,
         conn_pid = ConnPid,
         meta = Meta,
         status = Status,
@@ -304,7 +305,7 @@ handle_call(get_info, _From, State) ->
         control_pid => self(),
         node_id => NodeId,
         conn_id => ConnId,
-        listen => Listen,
+        listen => Connect,
         conn_pid => ConnPid,
         meta => Meta,
         status => Status,
@@ -324,10 +325,11 @@ handle_call({req, _Msg, _Opts}, _From, State) ->
     {reply, {error, not_connected}, State};
 
 handle_call(freeze, From, State) ->
-    #state{node_id=NodeId, listen=Listen, meta=Meta, classes=Classes, opts=Opts} = State,    
+    #state{node_id=NodeId, connect=Connect, meta=Meta, 
+           classes=Classes, opts=Opts} = State,    
     Data = #{
         node_id => NodeId, 
-        listen => Listen, 
+        connect => Connect, 
         meta => Meta, 
         classes => Classes, 
         opts => Opts
@@ -377,7 +379,7 @@ handle_cast({event, Class, Event}, State) ->
         {nkcluster, {node_status, NodeStatus}} ->
             update_status(NodeStatus, true, State1);
         {nkcluster, {agent_update, Update}} ->
-            nkcluster_nodes:control_update(NodeId, self(), Update),
+            nkcluster_nodes:node_update(NodeId, self(), Update),
             State1;
         _ ->
             send_event([Class], Event, State1),
@@ -502,23 +504,26 @@ terminate(Reason, State) ->
 -spec connect(#state{}) ->
     {noreply, #state{}} | {stop, normal, #state{}}.
 
-connect(#state{listen=[]}=State) ->
+connect(#state{connect=[]}=State) ->
     ?CLLOG(notice, "exiting, no connections available", [], State),
     {stop, normal, State};
 
-connect(#state{node_id=NodeId, listen=Listen, opts=Opts}=State) ->
+connect(#state{node_id=NodeId, connect=Connect, opts=Opts}=State) ->
     State1 = update_status(not_connected, false, State),
-    case do_connect(Listen, self(), Opts) of
+    case do_connect(Connect, self(), Opts) of
         {ok, ConnPid, NodeId, Info} ->
             MyListen = nkcluster_app:get(listen),
             case nkcluster_protocol:set_master(ConnPid, MyListen) of
                 ok ->
-                    Listen1 = maps:get(listen, Info, []),
-                    case node(ConnPid)/=node() andalso Listen1/=[] of
+                    Connect1 = maps:get(listen, Info, []),
+                    case node(ConnPid)/=node() andalso Connect1/=[] of
                         true ->
-                            ?CLLOG(info, "changing connection to local", [], State),
+                            % the remote node is already connected to another
+                            % primary node, and has some listening addresses,
+                            % stop that connection and connect again from here
+                            ?CLLOG(info, "switching connection to local", [], State),
                             nkcluster_protocol:stop(ConnPid),
-                            connect(State1#state{listen=Listen1});
+                            connect(State1#state{connect=Connect1});
                         false ->
                             monitor(process, ConnPid),
                             #{status:=NodeStatus, remote:=ConnId} = Info,
@@ -526,7 +531,7 @@ connect(#state{node_id=NodeId, listen=Listen, opts=Opts}=State) ->
                             State2 = State1#state{
                                 node_id = NodeId,
                                 conn_id = ConnId,
-                                listen = Listen1,
+                                connect = Connect1,
                                 conn_pid = ConnPid,
                                 meta = maps:get(meta, Info, #{}),
                                 latencies = []
@@ -562,7 +567,7 @@ update_status(Status, Connected, State) ->
     #state{
         node_id = NodeId, 
         status = OldStatus, 
-        listen = Listen, 
+        connect = Listen, 
         meta = Meta,
         classes = Classes,
         latencies = Latencies,
@@ -585,7 +590,7 @@ update_status(Status, Connected, State) ->
                         remote => Remote,
                         conn_pid => ConnPid
                     },
-                    nkcluster_nodes:control_update(NodeId, self(), Update),
+                    nkcluster_nodes:node_update(NodeId, self(), Update),
                     send_event(Classes, {nkcluster, {node_status, Status}}, State),
                     ?CLLOG(info, "status changed from '~p' to '~p'", 
                            [OldStatus, Status], State)

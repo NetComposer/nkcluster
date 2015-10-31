@@ -20,30 +20,30 @@
 
 %% @doc NkCLUSTER Agent Management
 %%
-%% For control nodes:
+%% For primary nodes:
 %% - it tries to connect to other erlang nodes (pinging them)
 %%
 %% For all:
-%% - gets periodic statistics, and tries to send an update for each
+%% - gets periodic statistics, and tries to send an update for each one
 %%     - if it cannot (because of no primary connection) it will try to 
 %%       send and announce. The announce will reach nkcluster_nodes, and will
 %%       start a new proxy if none is up
 %%     - if it cannot (because of no connection) it will try to start a connection
-%% - waits for pings from the control, if timeout will try to connect
+%% - waits for pings from the control, if timeout it will try to connect
+%%
 -module(nkcluster_agent).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(gen_server).
 
--export([node_id/0, is_control/0]).
+-export([node_id/0, is_primary/0]).
 -export([get_status/0, set_status/1, update_cluster_addr/2, connect/2]).
--export([connect_opts/3, ping_all_nodes/0, connect_nodes/1, pong/0]).
+-export([connect_opts/3, ping_all_nodes/0, join_nodes/1, received_ping/0]).
 -export([clear_cluster_addr/0]).
 -export([start_link/0, init/1, terminate/2, code_change/3, handle_call/3,   
-            handle_cast/2, handle_info/2]).
+         handle_cast/2, handle_info/2]).
 
 -include_lib("nklib/include/nklib.hrl").
 -include_lib("nkpacket/include/nkpacket.hrl").
-
 
 
 -type connect_opts() ::
@@ -67,11 +67,11 @@ node_id() ->
 
 
 %% @doc Finds if this node is a control node
--spec is_control() ->
+-spec is_primary() ->
     boolean().
 
-is_control() ->
-    nkcluster_app:get(is_control).
+is_primary() ->
+    nkcluster_app:get(type) == primary.
 
 
 %% @doc Gets current node status
@@ -95,10 +95,10 @@ set_status(Status) when Status==ready; Status==standby; Status==stopped ->
 -spec update_cluster_addr(boolean(), [nklib:user_uri()]) ->
     ok | {error, term()}.
 
-update_cluster_addr(Preferred, ClusterAddr) ->
-    case nkpacket:multi_resolve(ClusterAddr, #{valid_schemes=>[nkcluster]}) of
+update_cluster_addr(IsPreferred, ClusterAddr) ->
+    case resolve(ClusterAddr, #{}) of
         {ok, Conns} ->
-            gen_server:cast(?MODULE, {update_addrs, Preferred, Conns});
+            gen_server:cast(?MODULE, {update_addrs, IsPreferred, Conns});
         {error, Error} ->
             {error, Error}
     end.
@@ -118,7 +118,7 @@ clear_cluster_addr() ->
     {ok, nkcluster:node_id(), map()}.
 
 connect(NodeAddrs, Opts) ->
-    case nkpacket:multi_resolve(NodeAddrs, Opts#{valid_schemes=>[nkcluster]}) of
+    case resolve(NodeAddrs, Opts) of
         {ok, Conns} ->
             case do_connect(control, self(), Conns) of
                 {ok, Pid, NodeId, Info} ->
@@ -131,22 +131,25 @@ connect(NodeAddrs, Opts) ->
     end.
 
 
-%% @private Pings all control nodes (to join them)
+%% @private Pings all known nodes in the cluster_addr (primary nodes, to join them)
+%% When we connect to a primary node, it will send its list of known primary nodes,
+%% and the protocol will call join_nodes/1
+%% The password must be for all the local one or be in each URL
 -spec ping_all_nodes() ->
     ok | {error, term()}.
 
 ping_all_nodes() ->
     ClusterAddr = nkcluster_app:get(cluster_addr),
-    case nkpacket:multi_resolve(ClusterAddr, #{valid_schemes=>[nkcluster]}) of
+    case resolve(ClusterAddr, #{}) of
         {ok, Conns} ->
             lists:foreach(
                 fun(Conn) ->
                     case do_connect(control, self(), [Conn]) of
                         {ok, Pid, NodeId, _Info} ->
-                            lager:info("NkCLUSTER agent pinged ~s", [NodeId]),
+                            lager:info("NkCLUSTER Agent pinged ~s", [NodeId]),
                             nkcluster_protocol:stop(Pid);
                         {error, Error} ->
-                            lager:info("NkCLUSTER agent could not ping ~p: ~p", 
+                            lager:info("NkCLUSTER Agent could not ping ~p: ~p", 
                                        [Conn, Error])
                     end
                 end,
@@ -156,12 +159,13 @@ ping_all_nodes() ->
     end.
 
 
-%% @private
--spec connect_nodes([node()]) ->
+%% @private Called from nkcluster_protocol when it is a connected to a remote 
+%% primary node and it returns its list of known primary nodes
+-spec join_nodes([node()]) ->
     ok.
 
-connect_nodes(Nodes) ->
-    case is_control() of
+join_nodes(Nodes) ->
+    case is_primary() of
         true -> 
             Fun = case nkcluster_app:get(staged_joins) of
                 true -> staged_join;
@@ -171,9 +175,9 @@ connect_nodes(Nodes) ->
                 fun(Node) ->
                     case apply(riak_core, Fun, [Node]) of
                         ok -> 
-                            lager:notice("NkCLUSTER control node joined ~p", [Node]);
+                            lager:notice("NkCLUSTER Primary Node joined ~p", [Node]);
                         {error, Error} ->
-                            lager:notice("NkCLUSTER control node could not join ~p: ~p", 
+                            lager:notice("NkCLUSTER Primary Node could not join ~p: ~p", 
                                          [Node, Error])
                     end
                 end,
@@ -183,9 +187,10 @@ connect_nodes(Nodes) ->
     end.
 
 
-%% @private
-pong() ->
-    gen_server:cast(?MODULE, pong).
+%% @private Called from nkcluster_protocol when we receive a ping
+%% We check we receive another soon after
+received_ping() ->
+    gen_server:cast(?MODULE, reset_ping_timer).
 
 
 
@@ -205,9 +210,9 @@ start_link() ->
     listen = [] :: [nklib:uri()],
     status :: nkcluster:node_status(),
     os_type :: term(),
-    connecting :: boolean(),
+    connecting1 :: boolean(),
     stats = #{} :: map(),
-    timer :: reference()
+    ping_timer :: reference()
 }).
 
 
@@ -225,15 +230,15 @@ init([]) ->
         listen = nkcluster_app:get(listen),
         status = ready,
         os_type = OsType,
-        connecting = false
+        connecting1 = false
     },
     nklib_proc:put(?MODULE, ready),
-    case is_control() of
+    case is_primary() of
         true -> spawn(fun() -> ping_all_nodes() end);
         false -> ok
     end,
     erlang:send_after(1000, self(), get_stats),
-    {ok, start_ping_timer(State)}.
+    {ok, reset_ping_timer(State)}.
 
 %% @private
 -spec handle_call(term(), {pid(), term()}, #state{}) ->
@@ -278,13 +283,14 @@ handle_cast({update_addrs, false, Addrs}, State) ->
 
 handle_cast({send_update, Stats}, State) ->
     State1 = State#state{stats=Stats},
-    NoAddrs = no_addrs(State),
+    HasNoAddrs = has_no_addrs(State),
     State2 = case send_update(State1) of
         ok ->
             State1;
-        {error, _} when NoAddrs ->
+        {error, _} when HasNoAddrs ->
             State1;
         {error, _} ->
+            % Send announce to all connected primaries
             case nkcluster_protocol:send_announce() of
                 ok ->
                     lager:info("NkCLUSTER Agent sent announcement", []),
@@ -298,10 +304,10 @@ handle_cast({send_update, Stats}, State) ->
     {noreply, State2};
 
 handle_cast({connecting, false}, State) ->
-    {noreply, State#state{connecting=false}};
+    {noreply, State#state{connecting1=false}};
 
-handle_cast(pong, State) ->
-    {noreply, start_ping_timer(State)};
+handle_cast(reset_ping_timer, State) ->
+    {noreply, reset_ping_timer(State)};
 
 handle_cast(Msg, State) ->
     lager:error("Module ~p received unexpected cast: ~p", [?MODULE, Msg]),
@@ -328,18 +334,18 @@ handle_info(check_stopped, #state{status=stopping}=State) ->
 handle_info(check_stopped, State) ->
     {noreply, State};
 
-handle_info(ping_timeout, #state{connecting=false}=State) ->
-    State1 = case no_addrs(State) of
+handle_info(ping_timeout, #state{connecting1=false}=State) ->
+    State1 = case has_no_addrs(State) of
         true ->
             State;
         false ->
             lager:notice("NkCLUSTER Agent ping timeout!", State),
             connect_and_announce(State)
     end,
-    {noreply, start_ping_timer(State1)};
+    {noreply, reset_ping_timer(State1)};
 
-handle_info(ping_timeout, #state{connecting=true}=State) ->
-    {noreply, start_ping_timer(State)};
+handle_info(ping_timeout, #state{connecting1=true}=State) ->
+    {noreply, reset_ping_timer(State)};
 
 handle_info(Msg, State) ->
     lager:error("Module ~p received unexpected info: ~p", [?MODULE, Msg]),
@@ -406,7 +412,7 @@ send_update(#state{stats=Stats, listen=Listen, status=Status, os_type=OsType}) -
 
 
 %% @private
-connect_and_announce(#state{connecting=false}=State) ->
+connect_and_announce(#state{connecting1=false}=State) ->
     #state{pref_addrs=Pref, cluster_addrs=Cluster} = State,
     Addrs = Pref ++ nklib_util:randomize(Cluster),
     Self = self(),
@@ -421,7 +427,7 @@ connect_and_announce(#state{connecting=false}=State) ->
         gen_server:cast(Self, {connecting, false})
     end,
     spawn_link(Fun),
-    State#state{connecting=true};
+    State#state{connecting1=true};
 
 connect_and_announce(State) ->
     State.
@@ -433,7 +439,7 @@ do_connect(_Type, _Host, []) ->
 
 do_connect(Type, Host, [{Conns, Opts}|Rest]) ->
     ConnOpts = connect_opts(Type, Host, Opts),
-    lager:info("NkCLUSTER Agent connecting to ~p", [Conns]),
+    lager:info("NkCLUSTER Agent connecting to ~p (~p)", [Conns, Type]),
     case catch nkpacket:connect(Conns, ConnOpts) of
         {ok, Pid} ->
             case nkcluster_protocol:wait_auth(Pid) of
@@ -445,6 +451,10 @@ do_connect(Type, Host, [{Conns, Opts}|Rest]) ->
             end;
         {error, Error} ->
             lager:info("NkCLUSTER Agent could not connect to ~p: ~p", [Conns, Error]),
+            do_connect(Type, Host, Rest);
+        {'EXIT', Error} ->
+            lager:info("NkCLUSTER Agent could not connect to ~p: ~p", 
+                       [Conns, {exit, Error}]),
             do_connect(Type, Host, Rest)
     end.
 
@@ -466,7 +476,6 @@ set_updated_status(Status, From, State) ->
     map().
 
 connect_opts(Type, Host, Opts) ->
-    UserOpts = maps:with([password], Opts),
     TLSKeys = nkpacket_util:tls_keys(),
     TLSOpts = maps:with(TLSKeys, Opts),
     TLSOpts#{
@@ -476,23 +485,27 @@ connect_opts(Type, Host, Opts) ->
         idle_timeout => 15000,
         ws_proto => nkcluster,
         tcp_packet => 4,
-        user => maps:merge(#{type=>Type}, UserOpts)
+        user => maps:with([password, type], Opts#{type=>Type})
     }.
 
 
 %% @private
-no_addrs(#state{pref_addrs=Pref, cluster_addrs=Cluster}) ->
+has_no_addrs(#state{pref_addrs=Pref, cluster_addrs=Cluster}) ->
     Pref==[] andalso Cluster==[].
 
 
 %% @private
-start_ping_timer(#state{timer=Timer}=State) ->
+reset_ping_timer(#state{ping_timer=Timer}=State) ->
     nklib_util:cancel_timer(Timer),
     Time = 2 * nkcluster_app:get(ping_time),
-    State#state{timer=erlang:send_after(Time, self(), ping_timeout)}.
+    State#state{ping_timer=erlang:send_after(Time, self(), ping_timeout)}.
     
+-compile(export_all).
 
-
-
-
+%% @private
+resolve(Uri, Opts) ->
+    Syntax = #{password=>binary},
+    Opts1 = Opts#{valid_schemes=>[nkcluster], syntax=>Syntax},
+    nkpacket:multi_resolve(Uri, Opts1).
+    
 

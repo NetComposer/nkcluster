@@ -35,12 +35,11 @@ app_syntax() ->
         cluster_addr => uris,
         password => binary,
         meta => tokens,
-        is_control => boolean,
+        type => {enum, [primary, secondary]},
         listen => uris,
         ?TLS_SYNTAX,
-        
         ping_time => {integer, 1000, 60000},          % Ping interval for agent and proxy
-        proxy_connect_retry => {integer, 1000, none}, % After faillyre
+        proxy_connect_retry => {integer, 1000, none}, % After faillure
         stats_time => {integer, 1000, none},          % Agent generation
         node_id => binary,                            % Force node id
         staged_joins => boolean,                      % For riak_core
@@ -54,7 +53,7 @@ app_defaults() ->
         cluster_addr => "",
         password => "nkcluster",
         meta => "",
-        is_control => true,
+        type => primary,
         listen => "nkcluster://all;transport=tls",
         ping_time => 5000,
         proxy_connect_retry => 10000,

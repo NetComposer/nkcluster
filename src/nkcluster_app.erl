@@ -63,10 +63,10 @@ start(_Type, _Args) ->
     Syntax = nkcluster_syntax:app_syntax(),
     Defaults = nkcluster_syntax:app_defaults(),
     case nklib_config:load_env(?APP, Syntax, Defaults) of
-        {ok, _} ->
-            TranspKeys = [|nkpacket_util:tls_keys()],
-
-
+        {ok, Opts} ->
+            TLSKeys = nkpacket_util:tls_keys(),
+            TLSOpts = maps:with(TLSKeys, nklib_util:to_map(Opts)),
+            put(tls_opts, TLSOpts),
             nkpacket:register_protocol(nkcluster, nkcluster_protocol),
             check_uris(get(cluster_addr)),
             check_uris(get(listen)),
@@ -77,17 +77,12 @@ start(_Type, _Args) ->
             end,
             nklib_config:put(?APP, node_id, NodeId),
             {ok, Vsn} = application:get_key(?APP, vsn),
-            IsControl = get(is_control),
-            case IsControl of
-                true -> ok = nkdist_app:start();
-                false -> ok
+            case get(type) of
+                primary -> ok = nkdist_app:start();
+                secondary -> ok
             end,
-            MasterMsg = case IsControl of
-                true -> "control";
-                false -> "worker"
-            end,
-            lager:notice("NkCLUSTER v~s '~s' node ~s is starting (cluster '~s')", 
-                         [Vsn, MasterMsg, NodeId, get(cluster_name)]),
+            lager:notice("NkCLUSTER v~s node ~s is starting (cluster '~s', ~p)", 
+                         [Vsn, NodeId, get(cluster_name), get(type)]),
             lager:notice("NkCLUSTER listening on ~s", 
                          [nklib_unparse:uri(get(listen))]),
             case nklib_unparse:uri(get(cluster_addr)) of

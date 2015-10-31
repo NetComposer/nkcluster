@@ -33,21 +33,7 @@
     {ok, pid()}.
 
 start_link() ->
-    ListenOpts = #{
-        srv_id => nkcluster,
-        idle_timeout => 180000,
-        tcp_packet => 4,
-        ws_proto => nkcluster,
-        tls_opts => nkcluster_app:get(tls_opts),
-        user => #{type=>listen}
-    },
-    ListenSpecs = lists:map(
-        fun(Uri) ->
-            {ok, Spec} = nkpacket:get_listener(Uri, ListenOpts),
-            Spec
-        end,
-        nkcluster_app:get(listen)),
-    Control = case nkcluster_agent:is_control() of
+    Primary = case nkcluster_agent:is_primary() of
         true -> 
             [
                 {nkcluster_nodes,
@@ -61,8 +47,22 @@ start_link() ->
         false ->
             []
     end,
+    ListenOpts1 = #{
+        srv_id => nkcluster,
+        idle_timeout => 180000,
+        tcp_packet => 4,
+        ws_proto => nkcluster,
+        user => #{type=>listen}
+    },
+    ListenOpts2 = maps:merge(ListenOpts1, nkcluster_app:get(tls_opts)),
+    ListenSpecs = lists:map(
+        fun(Uri) ->
+            {ok, Spec} = nkpacket:get_listener(Uri, ListenOpts2),
+            Spec
+        end,
+        nkcluster_app:get(listen)),
     ChildsSpec = 
-        Control
+        Primary
         ++
         [
             {nkcluster_agent,
