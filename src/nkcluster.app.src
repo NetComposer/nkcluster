@@ -1,6 +1,6 @@
 {application, nkcluster, [
     {description, "Nekso Cluster Framework"},
-    {vsn, "develop"},
+    {vsn, "master"},
     {modules, []},
     {registered, []},
     {mod, {nkcluster_app, []}},
