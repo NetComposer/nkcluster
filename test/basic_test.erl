@@ -29,21 +29,21 @@
 
 -define(EVENT(NodeId), event(NodeId, ?LINE)).
 
-% basic_test_() ->
-%   	{setup, 
-%     	fun() -> 
-%     		ok = nkcluster_app:start()
-% 		end,
-% 		fun(_) -> 
-% 			ok 
-% 		end,
-% 	    fun(_) ->
-% 		    [
-% 				fun() -> connect() end,
-% 				{timeout, 10000, fun() -> proxy() end}
-% 			]
-% 		end
-%   	}.
+basic_test_() ->
+  	{setup, 
+    	fun() -> 
+    		ok = nkcluster_app:start()
+		end,
+		fun(_) -> 
+			ok 
+		end,
+	    fun(_) ->
+		    [
+				fun() -> connect() end,
+				{timeout, 10000, fun() -> proxy() end}
+			]
+		end
+  	}.
 
 
 
@@ -54,24 +54,24 @@ connect() ->
 	ready = nkcluster_agent:get_status(),
 	NodeId = nkcluster_agent:node_id(),
 	{ok, []} = nkdist:get_procs(),
-	% {error, {invalid_scheme, http}} = nkcluster_agent:connect("http://localhost", #{}),
-	% {error, {invalid_transport, udp}} = nkcluster_agent:connect("nkcluster://localhost;transport=udp", #{}),
+	{error, {invalid_scheme, http}} = nkcluster_agent:connect("http://localhost", #{}),
+	{error, {invalid_transport, udp}} = nkcluster_agent:connect("nkcluster://localhost;transport=udp", #{}),
 
-	% {error, no_connections} = nkcluster_agent:connect("nkcluster://localhost", #{}),
+	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost", #{}),
 
-	% % We start a raw connection, no announce is sent
-	% % We use the local stored password
-	% {ok, NodeId, Info} = 
-	% 	nkcluster_agent:connect("nkcluster://localhost, nkcluster://localhost:15001", #{}),
-	% #{
-	% 	conn_pid:=ConnPid1, listen:=[#uri{}, #uri{}, #uri{}, #uri{}], meta:=[{<<"test1">>, []}],
-	% 	remote:=<<"tcp:127.0.0.1:15001">>, status:=ready
-	% } = Info,
-	% nkcluster_protocol:stop(ConnPid1),
+	% We start a raw connection, no announce is sent
+	% We use the local stored password
+	{ok, NodeId, Info} = 
+		nkcluster_agent:connect("nkcluster://localhost, nkcluster://localhost:15001", #{}),
+	#{
+		conn_pid:=ConnPid1, listen:=[#uri{}, #uri{}, #uri{}, #uri{}], meta:=[{<<"test1">>, []}],
+		remote:=<<"tcp:127.0.0.1:15001">>, status:=ready
+	} = Info,
+	nkcluster_protocol:stop(ConnPid1),
 
-	% {error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15001", #{password=><<"bad">>}),
-	% {ok, NodeId, Info2} = nkcluster_agent:connect("nkcluster://localhost:15001", #{password=><<"testpass">>}),
-	% nkcluster_protocol:stop(maps:get(conn_pid, Info2)),
+	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15001", #{password=><<"bad">>}),
+	{ok, NodeId, Info2} = nkcluster_agent:connect("nkcluster://localhost:15001", #{password=><<"testpass">>}),
+	nkcluster_protocol:stop(maps:get(conn_pid, Info2)),
 
 	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15001;password=bad", #{}),
 	{ok, NodeId, Info3} = nkcluster_agent:connect(
@@ -151,6 +151,7 @@ proxy() ->
 	ok = nklib_config:put(nkcluster_test, pid, self()),
 	{module, _} = code:ensure_loaded(test_job_class),
 	nkcluster_jobs:send_event(test_job_class, hi),
+
 	hi = ?EVENT(NodeId),
 	[{_, ConnPid}] = nklib_proc:values(nkcluster_worker_master),
 	exit(ConnPid, kill),
@@ -173,7 +174,7 @@ proxy() ->
 
 event(NodeId, Line) ->
 	receive 
-		{test_jobs_event, NodeId, Msg} -> Msg
+		{test_job_class_event, NodeId, Msg} -> Msg
 	after 1000 -> 
 		error(Line)
 	end.

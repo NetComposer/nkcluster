@@ -477,7 +477,7 @@ set_updated_status(Status, From, State) ->
 
 connect_opts(Type, Host, Opts) ->
     TLSKeys = nkpacket_util:tls_keys(),
-    TLSOpts = maps:with(TLSKeys, Opts),
+    TLSOpts = maps:with([host|TLSKeys], Opts),
     TLSOpts#{
         srv_id => nkcluster,
         valid_schemes => [nkcluster],
