@@ -62,15 +62,15 @@
 %% ===================================================================
 
 
-%% @doc Gets remote status (from a control cluster cache)
--spec get_info(conn_spec()) ->
+%% @doc Gets node info (from master cotroller)
+-spec get_info(node_id()) ->
     {ok, nkcluster_nodes:info()} | {error, term()}.
 
 get_info(Node) ->
     nkcluster_nodes:get_node_info(Node).
 
 
-%% @doc Updates remote statyus
+%% @doc Updates remote status
 -spec set_status(conn_spec(), ready|standby|stopped) ->
     ok | {error, term()}.
 

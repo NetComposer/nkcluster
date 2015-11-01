@@ -50,7 +50,7 @@ basic_test_() ->
 
 connect() ->
 	?debugMsg("Starting CONNECT test"),
-	true = nkcluster_agent:is_control(),
+	true = nkcluster_agent:is_primary(),
 	ready = nkcluster_agent:get_status(),
 	NodeId = nkcluster_agent:node_id(),
 	{ok, []} = nkdist:get_procs(),
@@ -59,7 +59,8 @@ connect() ->
 
 	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost", #{}),
 
-	% We start a raw connection, with a 15secs timeout, no announce is sent
+	% We start a raw connection, no announce is sent
+	% We use the local stored password
 	{ok, NodeId, Info} = 
 		nkcluster_agent:connect("nkcluster://localhost, nkcluster://localhost:15001", #{}),
 	#{
@@ -82,8 +83,7 @@ connect() ->
 	nkcluster_protocol:stop(maps:get(conn_pid, Info4)),
 
 	% We must include a cacertfile to verify
-	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15002;transport=tls", 
-													  #{tls_opts=>#{verify=>true}}),
+	{error, no_connections} = nkcluster_agent:connect("nkcluster://localhost:15002;transport=tls", 											  #{tls_verify=>true}),
 	{error, {syntax_error, <<"tls_verify">>}} = nkcluster_agent:connect(
 		"nkcluster://localhost:15002;transport=tls;tls_verify=hi", #{}),
 	{error, no_connections} = nkcluster_agent:connect(
@@ -149,8 +149,9 @@ proxy() ->
 	% Now we kill the connection. The proxy should reconnect inmediatly
 	% Register our class for notifications
 	ok = nklib_config:put(nkcluster_test, pid, self()),
-	{module, _} = code:ensure_loaded(test_jobs),
-	nkcluster_jobs:send_event(test_jobs, hi),
+	{module, _} = code:ensure_loaded(test_job_class),
+	nkcluster_jobs:send_event(test_job_class, hi),
+
 	hi = ?EVENT(NodeId),
 	[{_, ConnPid}] = nklib_proc:values(nkcluster_worker_master),
 	exit(ConnPid, kill),
@@ -173,7 +174,7 @@ proxy() ->
 
 event(NodeId, Line) ->
 	receive 
-		{test_jobs_event, NodeId, Msg} -> Msg
+		{test_job_class_event, NodeId, Msg} -> Msg
 	after 1000 -> 
 		error(Line)
 	end.

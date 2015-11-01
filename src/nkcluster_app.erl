@@ -23,7 +23,7 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -behaviour(application).
 
--export([start/0, start/2, stop/1]).
+-export([start/0, start/1, start/2, stop/1]).
 -export([get/1, put/2, del/1]).
 
 -include("nkcluster.hrl").
@@ -37,52 +37,37 @@
 %% Private
 %% ===================================================================
 
-%% @doc Starts stand alone.
+%% @doc Starts NkCLUSTER stand alone.
 -spec start() -> 
     ok | {error, Reason::term()}.
 
 start() ->
-    nkdist_util:ensure_dir(),
-    case nklib_util:ensure_all_started(?APP, temporary) of
-        {ok, _Started} -> ok;
-        {error, Error} -> {error, Error}
-    end.
+    start(temporary).
 
+
+%% @doc Starts NkCLUSTER stand alone.
+-spec start(permanent|transient|temporary) -> 
+    ok | {error, Reason::term()}.
+
+start(Type) ->
+    nkdist_util:ensure_dir(),
+    case nklib_util:ensure_all_started(?APP, Type) of
+        {ok, _Started} ->
+            ok;
+        Error ->
+            Error
+    end.
 
 %% @private OTP standard start callback
 start(_Type, _Args) ->
-    ConfigSpec = #{
-        cluster_name => binary,
-        cluster_addr => uris,
-        password => binary,
-        meta => tokens,
-        is_control => boolean,
-        listen => uris,
-        tls_opts => nkpacket_util:tls_spec(),
-        ping_time => {integer, 1000, 60000},
-        proxy_connect_retry => {integer, 1000, none},
-        stats_time => {integer, 1000, none},
-        node_id => binary,
-        staged_joins => boolean,
-        pbkdf2_iters => {integer, 1, none}
-    },
-    Defaults = [
-        {cluster_name, "nkcluster"},
-        {cluster_addr, ""},
-        {password, "nkcluster"},
-        {meta, ""},
-        {is_control, true},
-        {listen, "nkcluster://all;transport=tls"},
-        {tls_opts, nkpacket_config:tls_opts()},
-        {ping_time, 5000},
-        {proxy_connect_retry, 10000},
-        {stats_time, 10000},
-        {staged_joins, false},
-        {pbkdf2_iters, 20000}
-    ],
-    case nklib_config:load_env(?APP, ?APP, Defaults, ConfigSpec) of
-        ok ->
-            nkpacket_config:register_protocol(nkcluster, nkcluster_protocol),
+    Syntax = nkcluster_syntax:app_syntax(),
+    Defaults = nkcluster_syntax:app_defaults(),
+    case nklib_config:load_env(?APP, Syntax, Defaults) of
+        {ok, Opts} ->
+            TLSKeys = nkpacket_util:tls_keys(),
+            TLSOpts = maps:with(TLSKeys, nklib_util:to_map(Opts)),
+            put(tls_opts, TLSOpts),
+            nkpacket:register_protocol(nkcluster, nkcluster_protocol),
             check_uris(get(cluster_addr)),
             check_uris(get(listen)),
             %% It is NOT recommended that you fix the NodeId!
@@ -92,18 +77,13 @@ start(_Type, _Args) ->
             end,
             nklib_config:put(?APP, node_id, NodeId),
             {ok, Vsn} = application:get_key(?APP, vsn),
-            IsControl = get(is_control),
-            case IsControl of
-                true -> ok = nkdist_app:start();
-                false -> ok
+            case get(type) of
+                primary -> ok = nkdist_app:start();
+                secondary -> ok
             end,
-            MasterMsg = case IsControl of
-                true -> "control";
-                false -> "worker"
-            end,
-            lager:notice("NkCLUSTER v~s '~s' node ~s is starting (cluster '~s')", 
-                         [Vsn, MasterMsg, NodeId, get(cluster_name)]),
-            lager:notice("NkCLUSTER node listening on ~s", 
+            lager:notice("NkCLUSTER v~s node ~s is starting (cluster '~s', ~p)", 
+                         [Vsn, NodeId, get(cluster_name), get(type)]),
+            lager:notice("NkCLUSTER listening on ~s", 
                          [nklib_unparse:uri(get(listen))]),
             case nklib_unparse:uri(get(cluster_addr)) of
                 <<>> -> 
@@ -114,7 +94,7 @@ start(_Type, _Args) ->
             end,
             case nklib_unparse:token(get(meta)) of
                 <<>> -> ok;
-                Meta -> lager:notice("NkCLUSTER node metadata: ~s", [Meta])
+                Meta -> lager:notice("NkCLUSTER metadata: ~s", [Meta])
             end,
             nkcluster_sup:start_link();
         {error, Error} ->

@@ -45,11 +45,15 @@
 
 
 -type info() ::
+
     #{
         id => nkcluster:node_id(),
-        proxies => [pid()]
-    }
-    | update().
+        proxies => [pid()],
+        status => nkcluster:node_status(),
+        listen => [nklib:uri()],
+        meta => [nklib:token()],
+        stats => map()
+    }.
 
 -define(TIMEOUT, 60000).
 
@@ -232,13 +236,12 @@ handle_call(Msg, _From, State) ->
     {noreply, #state{}}.
 
 handle_cast({node_announce, NodeId, ConnPid}, State) ->
-    lager:info("NkCLUSTER nodes manager received announce from ~s (~p)", 
-               [NodeId, ConnPid]),
+    lager:info("NkCLUSTER Nodes announce from ~s (~p)", [NodeId, ConnPid]),
     spawn(fun() -> try_connect(NodeId, ConnPid, #{}) end),
     {noreply, State};
 
-handle_cast({node_update, NodeId, Pid, Info}, #state{master=Master}=State) ->
-    master_update(Master, NodeId, Pid, Info),
+handle_cast({node_update, NodeId, Pid, Info}, State) ->
+    master_update(NodeId, Pid, Info, State),
     {noreply, do_update(NodeId, Pid, Info, State)};
 
 handle_cast(Msg, State) -> 
@@ -277,18 +280,17 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 
-%% @private Implementing the nkdist_gen_server handle_master callback
+%% @private
 -spec handle_master(pid()|undefined, #state{}) ->
     {ok, #state{}}.
 
 handle_master(Master, State) when is_pid(Master) ->
-    lager:notice("NkCLUSTER nodes manager ~p master is ~p (~p)", 
-                 [self(), node(Master), Master]),
+    lager:notice("NkCLUSTER Nodes ~p master is ~p (~p)", [self(), node(Master), Master]),
     {ok, master_update_all(State#state{master=Master})};
 
-handle_master(undefined, State) ->
-    lager:notice("NkCLUSTER nodes manager ~p master is undefined!", [self()]),
-    {ok, State#state{master=undefined}}.
+handle_master(Master, State) ->
+    lager:notice("NkCLUSTER Nodes ~p master is ~p", [self(), Master]),
+    {ok, State#state{master=Master}}.
 
 
 %% @private
@@ -311,19 +313,21 @@ terminate(_Reason, _State) ->
 
 
 %% @private
-master_update(Master, NodeId, Pid, Info) when is_pid(Master), Master /= self() ->
-    gen_server:cast(Master, {node_update, NodeId, Pid, Info});
+master_update(NodeId, Pid, Info, #state{master=Master}=State) 
+        when is_pid(Master), Master /= self() ->
+    gen_server:cast(Master, {node_update, NodeId, Pid, Info}),
+    State;
 
-master_update(_Master, _NodeId, _Pid, _Info) ->
-    ok.
+master_update(_NodeId, _Pid, _Info, State) ->
+    State.
 
 
 %% private
-master_update_all(#state{master=Master, nodes=Nodes}=State) ->
+master_update_all(#state{nodes=Nodes}=State) ->
     lists:foreach(
         fun({NodeId, #node{pids=Pids, info=Info}}) ->
             lists:foreach(
-                fun(Pid) -> master_update(Master, NodeId, Pid, Info) end,
+                fun(Pid) -> master_update(NodeId, Pid, Info, State) end,
                 Pids)
         end,
         maps:to_list(Nodes)),
@@ -356,7 +360,7 @@ do_update(NodeId, Pid, Info, #state{nodes=Nodes, pids=Pids}=State) ->
         NodeId ->
             Pids;
         _ ->
-            lager:warning("NkCLUSTER nodes manager received update for OLD node"),
+            lager:warning("NkCLUSTER Nodes received update for OLD node"),
             Pids
     end,
     State#state{nodes=Nodes2, pids=Pids2}.
@@ -371,17 +375,15 @@ try_connect(NodeId, Connect, Opts) ->
         {ok, Pid} ->
             {ok, Pid};
         {error, _} ->
-            lager:info("NkCLUSTER nodes manager starting proxy to ~s", [NodeId]),
+            lager:info("NkCLUSTER Nodes starting proxy to ~s", [NodeId]),
             Arg = Opts#{connect=>Connect},
-            % Calls nkcluster_node_proxy:start/2
             case nkdist:start_proc(nkcluster_node_proxy, NodeId, Arg) of
                 {ok, Pid} ->
                     {ok, Pid};
                 {error, {already_started, Pid}} ->
                     {ok, Pid};
                 {error, Error} ->
-                    lager:warning("NkCLUSTER nodes manager could not start proxy: ~p", 
-                                  [Error]),
+                    lager:warning("NkCLUSTER Nodes could not start proxy: ~p", [Error]),
                     {error, Error}
             end
     end.

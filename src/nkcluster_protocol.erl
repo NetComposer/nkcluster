@@ -30,8 +30,8 @@
 -export([send_rpc/2, send_reply/3, send_event/2, send_announce/0, send_announce/1]).
 -export([get_all/0, encode/1, stop/1]).
 -export([transports/1, default_port/1, naptr/2, encode/2]).
--export([conn_init/1, conn_parse/2, conn_handle_call/3, 
-         conn_handle_cast/2, conn_handle_info/2, conn_stop/2]).
+-export([conn_init/1, conn_parse/3, conn_handle_call/4, 
+         conn_handle_cast/3, conn_handle_info/3, conn_stop/3]).
 
 -export_type([conn_id/0, from/0, msg/0, rpc/0, trans_id/0]).
 
@@ -162,7 +162,7 @@ get_all() ->
     ].
 
 
-%% @doc Gets all started connections
+%% @doc Gets all worker started connections to primary nodes
 -spec get_all_worker() ->
     [pid()].
 
@@ -235,6 +235,7 @@ encode(Term, _NkPort) ->
     node_id :: term(),
     auth = false :: boolean(),
     cluster :: term(),
+    password :: term(),
     remote_node_id :: term(),
     remote_listen = [] :: [nklib:uri()],
     remote_meta = [] :: [nklib:token()],
@@ -251,13 +252,14 @@ encode(Term, _NkPort) ->
 
 conn_init(NkPort) ->
     NodeId = nkcluster_agent:node_id(),
+    {ok, #{type:=Type}=User} = nkpacket:get_user(NkPort),
     State = #state{
         nkport = NkPort,
         node_id = NodeId,
-        pos_id = erlang:phash2({nklib_util:l_timestamp(), NodeId}) * 1000
+        pos_id = erlang:phash2({nklib_util:l_timestamp(), NodeId}) * 1000,
+        password = maps:get(password, User, undefined)
     },
-    {ok, #{type:=Type}=User} = nkpacket:get_user(NkPort),
-    lager:debug("NkCLUSTER node ~s starting connection ('~p')", [NodeId, Type]),
+    lager:debug("NkCLUSTER node ~s (~p) starting connection", [NodeId, Type]),
     case User of
         #{type:=listen} ->
             % We don't know yet our type
@@ -265,40 +267,40 @@ conn_init(NkPort) ->
         #{type:=control} ->
             % Later we will call take_control
             State1 = State#state{type=control},
-            send_auth(State1);
+            send_auth(NkPort, State1);
         #{type:={control, Pid}} when is_pid(Pid) ->
             State1 = State#state{type=control, control=Pid},
-            send_auth(State1);
+            send_auth(NkPort, State1);
         #{type:=worker} ->
             State1 = State#state{type=worker},
-            send_auth(State1)
+            send_auth(NkPort, State1)
     end.
 
 
 %% @private
--spec conn_parse(term()|close, #state{}) ->
-	{ok, #state{}} | {stop, term(), #state{}}.
+-spec conn_parse(term()|close, nkpacket:nkpacket(), #state{}) ->
+    {ok, #state{}} | {stop, term(), #state{}}.
 
-conn_parse(close, State) ->
+conn_parse(close, _NkPort, State) ->
 	{ok, State};
 
-conn_parse({binary, WsBinary}, State) ->
-    conn_parse(WsBinary, State);
+conn_parse({binary, WsBinary}, NkPort, State) ->
+    conn_parse(WsBinary, NkPort, State);
 
-conn_parse(Data, #state{auth=false}=State) ->
+conn_parse(Data, NkPort, #state{auth=false}=State) ->
     case catch binary_to_term(Data) of
         {auth, Msg} ->
-            process_auth(Msg, State);
+            process_auth(Msg, NkPort, State);
         Other ->
             lager:warning("NkCLUSTER node received unexpected object, closing: ~p", 
                           [Other]),
             {stop, normal, State}
     end;
 
-conn_parse(Data, #state{auth=true, type=worker}=State) ->
+conn_parse(Data, NkPort, #state{auth=true, type=worker}=State) ->
     case catch binary_to_term(Data) of
         {set_master, Uris} ->
-            ok = nkcluster_agent:update_cluster_addr(true, Uris, #{}),
+            ok = nkcluster_agent:update_cluster_addr(true, Uris),
             State1 = case State#state.worker_master of
                 true -> 
                     State;
@@ -308,95 +310,96 @@ conn_parse(Data, #state{auth=true, type=worker}=State) ->
             end,
             {ok, State1};
         {rpc, TransId, {req, nkcluster, {ping, Time}}} ->
-            nkcluster_agent:pong(),
+            nkcluster_agent:received_ping(),
             Reply = {reply, {Time, nklib_util:l_timestamp()}},
-            ret_send({rep, TransId, Reply}, State);
+            ret_send({rep, TransId, Reply}, NkPort, State);
         {rpc, TransId, Rpc} ->
             case process_rpc(Rpc, {self(), TransId}) of
                 defer -> {ok, State};
-                Reply -> ret_send({rep, TransId, Reply}, State)
+                Reply -> ret_send({rep, TransId, Reply}, NkPort, State)
             end;
         Other ->
-            lager:warning("NkCLUSTER node worker received unexpected object, "
+            lager:warning("NkCLUSTER Worker received unexpected object, "
                           "closing: ~p", [Other]),
             {stop, normal, State}
     end;
 
-conn_parse(Data, #state{auth=true, type=control}=State) ->
+conn_parse(Data, _NkPort, #state{auth=true, type=control}=State) ->
     case catch binary_to_term(Data) of
         announce ->
             #state{remote_node_id=RemNodeId} = State,
-            nkcluster_nodes:announced(RemNodeId, self()),
+            nkcluster_nodes:node_announce(RemNodeId, self()),
             {ok, State};
         {rep, TransId, Reply} ->
             process_resp(TransId, Reply, State);
         {ev, Class, Event} ->
             process_event(Class, Event, State);
         Other ->
-            lager:warning("NkCLUSTER node control received unexpected object, "
+            lager:warning("NkCLUSTER Control received unexpected object, "
                           "closing: ~p", [Other]),
             {stop, normal, State}
     end.
 
 
 %% @private
--spec conn_handle_call(term(), {pid(), term()}, #state{}) ->
+-spec conn_handle_call(term(), {pid(), term()}, nkpacket:nkpacket(), #state{}) ->
     {ok, #state{}} | {stop, term(), #state{}}.
 
-conn_handle_call(wait_auth, From, #state{auth=true}=State) ->
-    gen_server:reply(From, get_remote(State)),
+conn_handle_call(wait_auth, From, NkPort, #state{auth=true}=State) ->
+    gen_server:reply(From, get_remote(NkPort, State)),
     {ok, State};
 
-conn_handle_call(wait_auth, From, State) ->
+conn_handle_call(wait_auth, From, _NkPort, State) ->
     #state{auth_froms=Froms} = State,
     {ok, State#state{auth_froms=[From|Froms]}};
 
-conn_handle_call({rpc, Rpc}, From, #state{pos_id=TransId}=State) ->
-    do_send_rpc({rpc, TransId, Rpc}, From, State);
+conn_handle_call({rpc, Rpc}, From, NkPort, #state{pos_id=TransId}=State) ->
+    do_send_rpc({rpc, TransId, Rpc}, From, NkPort, State);
 
-conn_handle_call({send, Msg}, From, #state{auth=true}=State)->
-    ret_send(Msg, From, State);
+conn_handle_call({send, Msg}, From, NkPort, #state{auth=true}=State)->
+    ret_send2(Msg, From, NkPort, State);
 
-conn_handle_call({send, _Msg}, From, State) ->
+conn_handle_call({send, _Msg}, From, _NkPort, State) ->
     gen_server:reply(From, {error, not_authenticated}),
     {ok, State};
 
-conn_handle_call(Msg, _From, State) ->
+conn_handle_call(Msg, _From, _NkPort, State) ->
     lager:error("Module ~p received unexpected call: ~p", [?MODULE, Msg]),
     {stop, unexpected_call, State}.
 
 
--spec conn_handle_cast(term(), #state{}) ->
+%% @private
+-spec conn_handle_cast(term(), nkpacket:nkpacket(), #state{}) ->
     {ok, #state{}} | {stop, term(), #state{}}.
 
-conn_handle_cast({take_control, Proxy}, #state{type=control}=State) ->
+conn_handle_cast({take_control, Proxy}, _NkPort, #state{type=control}=State) ->
     nkpacket_connection:update_monitor(self(), Proxy),
     {ok, State#state{control=Proxy}};
 
-conn_handle_cast(Msg, State) ->
+conn_handle_cast(Msg, _NkPort, State) ->
     lager:error("Module ~p received unexpected cast: ~p", [?MODULE, Msg]),
     {ok, State}.
 
 
 %% @private
--spec conn_handle_info(term(), #state{}) ->
+-spec conn_handle_info(term(), nkpacket:nkpacket(), #state{}) ->
     {ok, #state{}} | {stop, term(), #state{}}.
 
 % nkcluster_jobs launchs processes with start_link
-conn_handle_info({'EXIT', _, normal}, State) ->
+conn_handle_info({'EXIT', _, normal}, _NkPort, State) ->
     {ok, State};
 
-conn_handle_info(Msg, State) ->
+conn_handle_info(Msg, _NkPort, State) ->
     lager:info("Module ~p received unexpected info: ~p", [?MODULE, Msg]),
     {ok, State}.
 
 
 %% @doc Called when the connection stops
--spec conn_stop(Reason::term(), #state{}) ->
+-spec conn_stop(Reason::term(), nkpacket:nkpacket(), #state{}) ->
     ok.
 
-conn_stop(_Reason, #state{type=Type}=State) ->
-    lager:info("NkCLUSTER node ~p disconnected from ~s", [Type, get_remote_id(State)]).
+conn_stop(_Reason, NkPort, #state{type=Type}) ->
+    lager:info("NkCLUSTER node (~p) disconnected from ~s", [Type, get_remote_id(NkPort)]).
 
 
 %% ===================================================================
@@ -416,7 +419,7 @@ do_call(Id, Msg) ->
 
 
 %% @private
-send_auth(#state{node_id=NodeId, type=Type}=State) ->
+send_auth(NkPort, #state{node_id=NodeId, type=Type}=State) ->
     AuthMsg = #{
         stage => 1, 
         vsns => ?VSNS, 
@@ -425,7 +428,7 @@ send_auth(#state{node_id=NodeId, type=Type}=State) ->
         time => nklib_util:l_timestamp() div 1000,
         type => Type
     },
-    case raw_send({auth, AuthMsg}, State) of
+    case raw_send({auth, AuthMsg}, NkPort) of
         ok ->
             {ok, State};
         error ->
@@ -434,8 +437,8 @@ send_auth(#state{node_id=NodeId, type=Type}=State) ->
 
 
 %% @private
-do_send_rpc(Msg, From, #state{auth=true, pos_id=TransId}=State) ->
-    case raw_send(Msg, State) of
+do_send_rpc(Msg, From, NkPort, #state{auth=true, pos_id=TransId}=State) ->
+    case raw_send(Msg, NkPort) of
         ok ->
             gen_server:reply(From, {ok, TransId}),
             {ok, State#state{pos_id=TransId+1}};
@@ -444,7 +447,7 @@ do_send_rpc(Msg, From, #state{auth=true, pos_id=TransId}=State) ->
             {stop, normal, State}
     end;
 
-do_send_rpc(_Msg, From, State) ->
+do_send_rpc(_Msg, From, _NkPort, State) ->
     gen_server:reply(From, {error, not_authenticated}),
     {ok, State}.
 
@@ -453,10 +456,10 @@ do_send_rpc(_Msg, From, State) ->
 %% @private
 %% Processed at the listening side
 process_auth(#{stage:=1, vsns:=Vsns, id:=RemNodeId, cluster:=Cluster, 
-               type:=Type, time:=Time}, State) ->
+               type:=Type, time:=Time}, NkPort, State) ->
     case select_vsn(Vsns) of
         error ->
-            not_authorized(unsupported_version, State);
+            not_authorized(unsupported_version, NkPort, State);
         Vsn ->
             Now = nklib_util:l_timestamp() div 1000,
             Drift = abs(Now-Time),
@@ -467,7 +470,7 @@ process_auth(#{stage:=1, vsns:=Vsns, id:=RemNodeId, cluster:=Cluster,
                 false ->
                     ok
             end,
-            Hash = make_auth_hash(RemNodeId, State),
+            Hash = make_auth_hash(RemNodeId, NkPort, State),
             #state{node_id=NodeId} = State,
             Stage2 = #{
                 stage => 2, 
@@ -485,82 +488,82 @@ process_auth(#{stage:=1, vsns:=Vsns, id:=RemNodeId, cluster:=Cluster,
                 remote_node_id = RemNodeId, 
                 vsn=Vsn
             },
-            ret_send({auth, Stage2}, State1)
+            ret_send({auth, Stage2}, NkPort, State1)
     end;
 
 %% Processed at the connecting side
-process_auth(#{stage:=2, id:=ListenId, vsn:=Vsn, hash:=Hash}, State) ->
+process_auth(#{stage:=2, id:=ListenId, vsn:=Vsn, hash:=Hash}, NkPort, State) ->
     true = lists:member(Vsn, ?VSNS),
     #state{node_id=NodeId} = State,
-    case make_auth_hash(NodeId, State) of
+    case make_auth_hash(NodeId, NkPort, State) of
         Hash ->
             % The remote (listening) side has a valid password
             % We send listen and meta, and try to authenticated ourselves
             State1 = State#state{remote_node_id=ListenId},
             Base3 = #{
                 stage => 3, 
-                hash => make_auth_hash(ListenId, State1),
+                hash => make_auth_hash(ListenId, NkPort, State),
                 listen => nkcluster_app:get(listen),
                 meta => nkcluster_app:get(meta)
             },
-            Stage3 = case nkcluster_agent:is_control() of
-                true -> Base3#{nodes=>riak_core_node_watcher:nodes(nkdist)};
+            Stage3 = case nkcluster_agent:is_primary() of
+                true -> Base3#{primary_nodes=>riak_core_node_watcher:nodes(nkdist)};
                 false -> Base3
             end,
-            ret_send({auth, Stage3}, State1); 
+            ret_send({auth, Stage3}, NkPort, State1); 
         _ ->
-            not_authorized(invalid_password, State)
+            not_authorized(invalid_password, NkPort, State)
     end;
 
 %% Processed at the listening side again
-process_auth(#{stage:=3, listen:=Listen, meta:=Meta, hash:=Hash}=Msg, State) ->
+process_auth(#{stage:=3, listen:=Listen, meta:=Meta, hash:=Hash}=Msg, NkPort, State) ->
     #state{node_id=ListenId, type=Type} = State,
-    case make_auth_hash(ListenId, State) of
+    case make_auth_hash(ListenId, NkPort, State) of
         Hash ->
             % The remote (connecting) side has a valid password
             % We send listen and meta
-            lager:info("NkCLUSTER node ~p connected to ~s", 
-                       [Type, get_remote_id(State)]),
+            lager:info("NkCLUSTER node (~p) connected to ~s", 
+                       [Type, get_remote_id(NkPort)]),
             State1 = State#state{
                 remote_listen = Listen,
                 remote_meta = Meta,
                 auth = true
             },
             register(State1),
-            connect_nodes(Msg),
+            join_nodes(Msg),
             Base4 = #{
                 stage => 4,
                 listen => nkcluster_app:get(listen),
                 meta => nkcluster_app:get(meta)
             },
-            Stage4 = case nkcluster_agent:is_control() of
-                true -> Base4#{nodes=>riak_core_node_watcher:nodes(nkdist)};
+            Stage4 = case nkcluster_agent:is_primary() of
+                true -> Base4#{primary_nodes=>riak_core_node_watcher:nodes(nkdist)};
                 false -> Base4
             end,
-            ret_send({auth, Stage4}, State1);
+            ret_send({auth, Stage4}, NkPort, State1);
         _ ->
-            not_authorized(invalid_password, State)
+            not_authorized(invalid_password, NkPort, State)
     end;
     
 %% Processed at the connecting side again, both sides are autenticated
-process_auth(#{stage:=4, listen:=Listen, meta:=Meta}=Msg, State) ->
+process_auth(#{stage:=4, listen:=Listen, meta:=Meta}=Msg, NkPort, State) ->
     State2 = State#state{
         remote_listen = Listen,
         remote_meta = Meta
     },
     #state{type=Type} = State,
-    lager:info("NkCLUSTER node ~p connected to ~s", [Type, get_remote_id(State)]),
-    connect_nodes(Msg),
+    lager:info("NkCLUSTER node (~p) connected to ~s", [Type, get_remote_id(NkPort)]),
+    join_nodes(Msg),
     register(State2),
     #state{auth_froms=AuthFroms} = State,
     lists:foreach(
-        fun(From) -> gen_server:reply(From, get_remote(State2)) end,
+        fun(From) -> gen_server:reply(From, get_remote(NkPort, State2)) end,
         AuthFroms),
     {ok, State2#state{auth=true, auth_froms=[]}};
 
-process_auth({error, Error}, #state{node_id=NodeId}=State) ->
+process_auth({error, Error}, NkPort, #state{node_id=NodeId}=State) ->
     lager:notice("NkCLUSTER node ~s authentication error: ~p", [NodeId, Error]),
-    not_authorized(Error, State).
+    not_authorized(Error, NkPort, State).
 
 
 %% @private
@@ -586,11 +589,11 @@ process_event(Class, Event, #state{control=Pid}=State) ->
 
 
 %% @private
--spec ret_send(msg()|binary(), {pid(), term()}, #state{}) ->
+-spec ret_send2(msg()|binary(), {pid(), term()}, nkpacket:nkport(), #state{}) ->
     {ok, #state{}} | {stop, term(), #state{}}.
 
-ret_send(Msg, From, State) ->
-    case raw_send(Msg, State) of
+ret_send2(Msg, From, NkPort, State) ->
+    case raw_send(Msg, NkPort) of
         ok ->
             gen_server:reply(From, ok),
             {ok, State};
@@ -601,11 +604,11 @@ ret_send(Msg, From, State) ->
 
 
 %% @private
--spec ret_send(msg()|binary(), #state{}) ->
+-spec ret_send(msg()|binary(), nkpacket:nkport(), #state{}) ->
     {ok, #state{}} | {stop, term(), #state{}}.
 
-ret_send(Msg, State) ->
-    case raw_send(Msg, State) of
+ret_send(Msg, NkPort, State) ->
+    case raw_send(Msg, NkPort) of
         ok ->
             {ok, State};
         error ->
@@ -614,10 +617,10 @@ ret_send(Msg, State) ->
 
 
 %% @private
--spec raw_send(msg()|binary(), #state{}) ->
+-spec raw_send(msg()|binary(), nkpacket:nkport()) ->
     ok | error.
 
-raw_send(Msg, #state{nkport=NkPort}) when is_binary(Msg) ->
+raw_send(Msg, NkPort) when is_binary(Msg) ->
     case nkpacket_connection_lib:raw_send(NkPort, Msg) of
         ok ->
             ok;
@@ -628,8 +631,8 @@ raw_send(Msg, #state{nkport=NkPort}) when is_binary(Msg) ->
             error
     end;
 
-raw_send(Msg, State) ->
-    raw_send(encode(Msg), State).
+raw_send(Msg, NkPort) ->
+    raw_send(encode(Msg), NkPort).
 
 
 %% @private
@@ -652,17 +655,17 @@ sort_vsns([Vsn|Rest], Acc) ->
 
 
 %% @private
-make_auth_hash(Salt, #state{nkport=NkPort}) ->
-    Pass = case nkpacket:get_user(NkPort) of
-        {ok, #{password:=Pass0}} -> Pass0;
-        _ -> nkcluster_app:get(password)
+make_auth_hash(Salt, NkPort, #state{password=Pass}) ->
+    Pass2 = case Pass of
+        undefined -> nkcluster_app:get(password);
+        _ -> Pass
     end,
-    {ok, {Transp, _, _}} = nkpacket:get_local(NkPort),
+    {ok, {_Proto, Transp, _, _}} = nkpacket:get_local(NkPort),
     case Transp==tls orelse Transp==wss of
         true ->
-            Pass;
+            Pass2;
         false ->
-            pbkdf2(Pass, Salt)
+            pbkdf2(Pass2, Salt)
     end.
 
 
@@ -672,7 +675,7 @@ register(#state{type=Type, node_id=NodeId, remote_node_id=RemNodeId}) ->
 
 
 %% @private
-not_authorized(Error, #state{auth_froms=AuthFroms}=State) ->
+not_authorized(Error, NkPort, #state{auth_froms=AuthFroms}=State) ->
     lists:foreach(
         fun(From) -> gen_server:reply(From, {error, Error}) end,
         AuthFroms),
@@ -680,32 +683,32 @@ not_authorized(Error, #state{auth_froms=AuthFroms}=State) ->
         invalid_password -> timer:sleep(500);
         _ -> ok
     end,
-    raw_send({auth, {error, Error}}, State),
+    raw_send({auth, {error, Error}}, NkPort),
     {stop, normal, State}.
 
 
 %% @private
-get_remote(State) ->
+get_remote(NkPort, State) ->
     #state{
         remote_node_id = NodeId, 
         remote_listen = Listen, 
         remote_meta = Meta
     } = State,
-    Remote = get_remote_id(State),
+    Remote = get_remote_id(NkPort),
     Status = nkcluster_agent:get_status(),
     {ok, NodeId, #{status=>Status, listen=>Listen, meta=>Meta, remote=>Remote}}.
 
 
 %% @private
-get_remote_id(#state{nkport=NkPort}) ->
-    {ok, {Transp, Ip, Port}} = nkpacket:get_remote(NkPort),
+get_remote_id(NkPort) ->
+    {ok, {_, Transp, Ip, Port}} = nkpacket:get_remote(NkPort),
     nklib_util:bjoin([Transp, nklib_util:to_host(Ip), Port], <<":">>).
 
 
 %% @private
-connect_nodes(#{nodes:=Nodes}) ->
-    nkcluster_agent:connect_nodes(Nodes);
-connect_nodes(_) ->
+join_nodes(#{primary_nodes:=Nodes}) ->
+    nkcluster_agent:join_nodes(Nodes);
+join_nodes(_) ->
     ok.
 
 
