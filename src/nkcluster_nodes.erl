@@ -232,7 +232,7 @@ handle_call(Msg, _From, State) ->
     {noreply, #state{}}.
 
 handle_cast({node_announce, NodeId, ConnPid}, State) ->
-    lager:info("NkCLUSTER Nodes Manager received announce from ~s (~p)", 
+    lager:info("NkCLUSTER nodes manager received announce from ~s (~p)", 
                [NodeId, ConnPid]),
     spawn(fun() -> try_connect(NodeId, ConnPid, #{}) end),
     {noreply, State};
@@ -282,12 +282,12 @@ handle_info(Info, State) ->
     {ok, #state{}}.
 
 handle_master(Master, State) when is_pid(Master) ->
-    lager:notice("NkCLUSTER Nodes Manager ~p master is ~p (~p)", 
+    lager:notice("NkCLUSTER nodes manager ~p master is ~p (~p)", 
                  [self(), node(Master), Master]),
     {ok, master_update_all(State#state{master=Master})};
 
 handle_master(undefined, State) ->
-    lager:notice("NkCLUSTER Nodes Manager ~p master is undefined!", [self()]),
+    lager:notice("NkCLUSTER nodes manager ~p master is undefined!", [self()]),
     {ok, State#state{master=undefined}}.
 
 
@@ -356,7 +356,7 @@ do_update(NodeId, Pid, Info, #state{nodes=Nodes, pids=Pids}=State) ->
         NodeId ->
             Pids;
         _ ->
-            lager:warning("NkCLUSTER Nodes Manager received update for OLD node"),
+            lager:warning("NkCLUSTER nodes manager received update for OLD node"),
             Pids
     end,
     State#state{nodes=Nodes2, pids=Pids2}.
@@ -371,7 +371,7 @@ try_connect(NodeId, Connect, Opts) ->
         {ok, Pid} ->
             {ok, Pid};
         {error, _} ->
-            lager:info("NkCLUSTER Nodes Manager starting proxy to ~s", [NodeId]),
+            lager:info("NkCLUSTER nodes manager starting proxy to ~s", [NodeId]),
             Arg = Opts#{connect=>Connect},
             % Calls nkcluster_node_proxy:start/2
             case nkdist:start_proc(nkcluster_node_proxy, NodeId, Arg) of
@@ -380,7 +380,7 @@ try_connect(NodeId, Connect, Opts) ->
                 {error, {already_started, Pid}} ->
                     {ok, Pid};
                 {error, Error} ->
-                    lager:warning("NkCLUSTER Nodes Manager could not start proxy: ~p", 
+                    lager:warning("NkCLUSTER nodes manager could not start proxy: ~p", 
                                   [Error]),
                     {error, Error}
             end

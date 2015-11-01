@@ -29,10 +29,10 @@ eunit:
 	./rebar eunit skip_deps=true
 
 shell:
-	erl -config util/shell_app.config -args_file util/shell_vm.args -s nkcluster_app
+	erl -config util/shell_app.config -args_file util/shell_vm.args -s nkcluster_app $(RELOADER)
 
 shell-test:
-	erl -config test/app.config -args_file test/vm.args -s nkcluster_app
+	erl -config test/app.config -args_file test/vm.args -s nkcluster_app $(RELOADER)
 
 docs:
 	./rebar skip_deps=true doc

@@ -259,7 +259,7 @@ conn_init(NkPort) ->
         pos_id = erlang:phash2({nklib_util:l_timestamp(), NodeId}) * 1000,
         password = maps:get(password, User, undefined)
     },
-    lager:debug("NkCLUSTER node ~s starting connection ('~p')", [NodeId, Type]),
+    lager:debug("NkCLUSTER node ~s (~p) starting connection", [NodeId, Type]),
     case User of
         #{type:=listen} ->
             % We don't know yet our type
@@ -328,7 +328,7 @@ conn_parse(Data, _NkPort, #state{auth=true, type=control}=State) ->
     case catch binary_to_term(Data) of
         announce ->
             #state{remote_node_id=RemNodeId} = State,
-            nkcluster_nodes:announced(RemNodeId, self()),
+            nkcluster_nodes:node_announce(RemNodeId, self()),
             {ok, State};
         {rep, TransId, Reply} ->
             process_resp(TransId, Reply, State);
@@ -399,7 +399,7 @@ conn_handle_info(Msg, _NkPort, State) ->
     ok.
 
 conn_stop(_Reason, NkPort, #state{type=Type}) ->
-    lager:info("NkCLUSTER node ~p disconnected from ~s", [Type, get_remote_id(NkPort)]).
+    lager:info("NkCLUSTER node (~p) disconnected from ~s", [Type, get_remote_id(NkPort)]).
 
 
 %% ===================================================================
@@ -522,7 +522,7 @@ process_auth(#{stage:=3, listen:=Listen, meta:=Meta, hash:=Hash}=Msg, NkPort, St
         Hash ->
             % The remote (connecting) side has a valid password
             % We send listen and meta
-            lager:info("NkCLUSTER node ~p connected to ~s", 
+            lager:info("NkCLUSTER node (~p) connected to ~s", 
                        [Type, get_remote_id(NkPort)]),
             State1 = State#state{
                 remote_listen = Listen,

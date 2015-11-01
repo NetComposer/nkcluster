@@ -146,10 +146,10 @@ ping_all_nodes() ->
                 fun(Conn) ->
                     case do_connect(control, self(), [Conn]) of
                         {ok, Pid, NodeId, _Info} ->
-                            lager:info("NkCLUSTER Agent pinged ~s", [NodeId]),
+                            lager:info("NkCLUSTER agent pinged ~s", [NodeId]),
                             nkcluster_protocol:stop(Pid);
                         {error, Error} ->
-                            lager:info("NkCLUSTER Agent could not ping ~p: ~p", 
+                            lager:info("NkCLUSTER agent could not ping ~p: ~p", 
                                        [Conn, Error])
                     end
                 end,
@@ -293,7 +293,7 @@ handle_cast({send_update, Stats}, State) ->
             % Send announce to all connected primaries
             case nkcluster_protocol:send_announce() of
                 ok ->
-                    lager:info("NkCLUSTER Agent sent announcement", []),
+                    lager:info("NkCLUSTER agent sent announcement", []),
                     State1;
                 error ->
                     connect_and_announce(State)
@@ -339,7 +339,7 @@ handle_info(ping_timeout, #state{connecting1=false}=State) ->
         true ->
             State;
         false ->
-            lager:notice("NkCLUSTER Agent ping timeout!", State),
+            lager:notice("NkCLUSTER agent ping timeout!", State),
             connect_and_announce(State)
     end,
     {noreply, reset_ping_timer(State1)};
@@ -421,7 +421,7 @@ connect_and_announce(#state{connecting1=false}=State) ->
             {ok, Pid, _NodeId, _Info} ->
                 nkcluster_protocol:send_announce([Pid]);
             {error, Error} ->
-                lager:info("NkCLUSTER Agent could not connect to any control node: ~p", 
+                lager:info("NkCLUSTER agent could not connect to any control node: ~p", 
                            [Error])
         end,
         gen_server:cast(Self, {connecting, false})
@@ -439,21 +439,21 @@ do_connect(_Type, _Host, []) ->
 
 do_connect(Type, Host, [{Conns, Opts}|Rest]) ->
     ConnOpts = connect_opts(Type, Host, Opts),
-    lager:info("NkCLUSTER Agent connecting to ~p (~p)", [Conns, Type]),
+    lager:info("NkCLUSTER agent connecting to ~p (~p)", [Conns, Type]),
     case catch nkpacket:connect(Conns, ConnOpts) of
         {ok, Pid} ->
             case nkcluster_protocol:wait_auth(Pid) of
                 {ok, NodeId, #{remote:=Remote}=Info} -> 
-                    lager:info("NkCLUSTER Agent connected to ~s", [Remote]),
+                    lager:info("NkCLUSTER agent connected to ~s", [Remote]),
                     {ok, Pid, NodeId, Info};
                 {error, _} -> 
                     do_connect(Type, Host, Rest)
             end;
         {error, Error} ->
-            lager:info("NkCLUSTER Agent could not connect to ~p: ~p", [Conns, Error]),
+            lager:info("NkCLUSTER agent could not connect to ~p: ~p", [Conns, Error]),
             do_connect(Type, Host, Rest);
         {'EXIT', Error} ->
-            lager:info("NkCLUSTER Agent could not connect to ~p: ~p", 
+            lager:info("NkCLUSTER agent could not connect to ~p: ~p", 
                        [Conns, {exit, Error}]),
             do_connect(Type, Host, Rest)
     end.

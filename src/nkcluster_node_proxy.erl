@@ -64,7 +64,7 @@
 -include_lib("nklib/include/nklib.hrl").
 
 -define(CLLOG(Type, Msg, Vars, State), 
-    lager:Type("NkCLUSTER Proxy ~s (~s) " Msg, 
+    lager:Type("NkCLUSTER proxy ~s (~s) " Msg, 
                [State#state.node_id, State#state.conn_id|Vars])).
 
 -define(TIMEOUT, 5*60*1000).
@@ -542,7 +542,7 @@ connect(#state{node_id=NodeId, connect=Connect, opts=Opts}=State) ->
                     connect_error(State1)
             end;
         {ok, _ConnPid, _OtherNodeId, _Info} ->
-            lager:warning("NkCLUSTER Proxy connected to node with different NodeId!"),
+            lager:warning("NkCLUSTER proxy connected to node with different NodeId!"),
             {stop, normal, State};
         error ->
             connect_error(State1)
@@ -650,10 +650,10 @@ do_connect([ConnPid|Rest], Host, Opts) when is_pid(ConnPid) ->
         {ok, NodeId, Info} ->
             % Probably the agent has started this connection
             nkcluster_protocol:take_control(ConnPid, Host),
-            lager:info("NkCLUSTER Proxy connected to ~p", [ConnPid]),
+            lager:info("NkCLUSTER proxy connected to ~p", [ConnPid]),
             {ok, ConnPid, NodeId, Info};
         {error, Error} ->
-            lager:info("NkCLUSTER Proxy error connecting to ~p: ~p", [ConnPid, Error]),
+            lager:info("NkCLUSTER proxy error connecting to ~p: ~p", [ConnPid, Error]),
             do_connect(Rest, Host, Opts)
     end;
 
@@ -666,16 +666,16 @@ do_connect([ConnUri|Rest], Host, Opts) ->
             case nkcluster_protocol:wait_auth(ConnPid) of
                 {ok, NodeId, Info} ->
                     ConnId = nklib_util:to_binary(ConnUri),
-                    lager:info("NkCLUSTER Proxy connected to ~s", [ConnId]),
+                    lager:info("NkCLUSTER proxy connected to ~s", [ConnId]),
                     {ok, ConnPid, NodeId, Info};
                 {error, Error} ->
                     ConnId = nklib_util:to_binary(ConnUri),
-                    lager:info("NkCLUSTER Proxy error connecting to ~s: ~p", [ConnId, Error]),
+                    lager:info("NkCLUSTER proxy error connecting to ~s: ~p", [ConnId, Error]),
                     do_connect(Rest, Host, Opts)
             end;
         {error, Error} ->
             ConnId = nklib_util:to_binary(ConnUri),
-            lager:info("NkCLUSTER Proxy error connecting to ~s: ~p", [ConnId, Error]),
+            lager:info("NkCLUSTER proxy error connecting to ~s: ~p", [ConnId, Error]),
             do_connect(Rest, Host, Opts)
     end.
 
