@@ -252,7 +252,7 @@ encode(Term, _NkPort) ->
 
 conn_init(NkPort) ->
     NodeId = nkcluster_agent:node_id(),
-    {ok, #{type:=Type}=User} = nkpacket:get_user(NkPort),
+    {ok, _SrvId, #{type:=Type}=User} = nkpacket:get_user(NkPort),
     State = #state{
         nkport = NkPort,
         node_id = NodeId,
