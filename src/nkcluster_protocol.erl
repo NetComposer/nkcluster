@@ -29,8 +29,8 @@
 -export([wait_auth/1, set_master/2, take_control/2]).
 -export([send_rpc/2, send_reply/3, send_event/2, send_announce/0, send_announce/1]).
 -export([get_all/0, encode/1, stop/1]).
--export([transports/1, default_port/1, naptr/2, encode/2]).
--export([conn_init/1, conn_parse/3, conn_handle_call/4, 
+-export([transports/1, default_port/1, naptr/2]).
+-export([conn_init/1, conn_parse/3, conn_encode/2, conn_handle_call/4, 
          conn_handle_cast/3, conn_handle_info/3, conn_stop/3]).
 
 -export_type([conn_id/0, from/0, msg/0, rpc/0, trans_id/0]).
@@ -216,14 +216,6 @@ naptr(nkcluster, "nk+d2s") -> {ok, sctp};
 naptr(_, _) -> invalid.
 
 
--spec encode(term(), nkpacket:nkport()) ->
-    {ok, nkpacket:outcoming()} | continue | {error, term()}.
-
-encode(Term, _NkPort) ->
-    {ok, encode(Term)}.
-
-
-
 %% ===================================================================
 %% Connection callbacks
 %% ===================================================================
@@ -339,6 +331,13 @@ conn_parse(Data, _NkPort, #state{auth=true, type=control}=State) ->
                           "closing: ~p", [Other]),
             {stop, normal, State}
     end.
+
+
+-spec conn_encode(term(), nkpacket:nkport()) ->
+    {ok, nkpacket:outcoming()} | continue | {error, term()}.
+
+conn_encode(Term, _NkPort) ->
+    {ok, encode(Term)}.
 
 
 %% @private
