@@ -479,7 +479,7 @@ connect_opts(Type, Host, Opts) ->
     TLSKeys = nkpacket_util:tls_keys(),
     TLSOpts = maps:with([host|TLSKeys], Opts),
     TLSOpts#{
-        srv_id => nkcluster,
+        class => nkcluster,
         valid_schemes => [nkcluster],
         monitor => Host,
         idle_timeout => 15000,
