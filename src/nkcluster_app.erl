@@ -81,20 +81,20 @@ start(_Type, _Args) ->
                 primary -> ok = nkdist_app:start();
                 secondary -> ok
             end,
-            lager:notice("NkCLUSTER v~s node ~s is starting (cluster '~s', ~p)", 
+            lager:info("NkCLUSTER v~s node ~s is starting (cluster '~s', ~p)", 
                          [Vsn, NodeId, get(cluster_name), get(type)]),
-            lager:notice("NkCLUSTER listening on ~s", 
+            lager:info("NkCLUSTER listening on ~s", 
                          [nklib_unparse:uri(get(listen))]),
             case nklib_unparse:uri(get(cluster_addr)) of
                 <<>> -> 
                     ok;
                 Addrs -> 
-                    lager:notice("NkCLUSTER cluster ~s addresses: ~s", 
+                    lager:info("NkCLUSTER cluster ~s addresses: ~s", 
                                  [get(cluster_name), Addrs])
             end,
             case nklib_unparse:token(get(meta)) of
                 <<>> -> ok;
-                Meta -> lager:notice("NkCLUSTER metadata: ~s", [Meta])
+                Meta -> lager:info("NkCLUSTER metadata: ~s", [Meta])
             end,
             nkcluster_sup:start_link();
         {error, Error} ->

@@ -282,7 +282,7 @@ handle_info(Info, State) ->
     {ok, #state{}}.
 
 handle_master(Master, State) when is_pid(Master) ->
-    lager:notice("NkCLUSTER nodes manager ~p master is ~p (~p)", 
+    lager:info("NkCLUSTER nodes manager ~p master is ~p (~p)", 
                  [self(), node(Master), Master]),
     {ok, master_update_all(State#state{master=Master})};
 
