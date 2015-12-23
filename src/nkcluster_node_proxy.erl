@@ -27,7 +27,7 @@
 -export([start_link/2, stop/1, get_info/1, get_all/0]).
 -export([rpc/3, new_connection/1]).
 -export([received_resp/3, received_event/3]).
--export([start/2, start_and_join/2, join/2]).
+-export([nkdist_start/2, nkdist_start_and_join/2, nkdist_join/2]).
 -export([init/1, terminate/2, code_change/3, handle_call/3,
          handle_cast/2, handle_info/2]).
 -export_type([conn_spec/0, start_opts/0, rpc_opts/0]).
@@ -153,26 +153,26 @@ received_event(Pid, Class, Event) ->
 
 
 %% @doc Start a new process
--spec start(nkcluster:node_id(), start_opts()) ->
+-spec nkdist_start(nkcluster:node_id(), start_opts()) ->
     {ok, pid()} | {error, term()}.
 
-start(NodeId, Opts) ->
+nkdist_start(NodeId, Opts) ->
     start_link(NodeId, Opts).
 
 
 %% @doc Starts a new clone process
--spec start_and_join(nkcluster:node_id(), pid()) ->
+-spec nkdist_start_and_join(nkcluster:node_id(), pid()) ->
     {ok, pid()} | {error, term()}.
 
-start_and_join(NodeId, Pid) ->
+nkdist_start_and_join(NodeId, Pid) ->
     start_link(NodeId, #{clone=>Pid}).
 
 
 %% @doc Joins two existing processes
--spec join(Current::pid(), Old::pid()) ->
+-spec nkdist_join(Current::pid(), Old::pid()) ->
     ok | {error, term()}.
 
-join(Pid, OldPid) ->
+nkdist_join(Pid, OldPid) ->
     gen_server:call(Pid, {join, OldPid}).
 
 
