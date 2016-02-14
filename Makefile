@@ -1,5 +1,5 @@
 REPO ?= nkcluster
-RELOADER ?= -s nkreloader
+#RELOADER ?= -s nkreloader
 
 .PHONY: deps release dev
 
